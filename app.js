@@ -1,4 +1,4 @@
-import { generateQuestList, updateQuestProgress } from './questgenerator.js';
+import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
 
 // --- Mentor-data fra questgenerator.js, hentet ind her ---
 const archetypes = [
