@@ -1,0 +1,138 @@
+/* === ARKETYPE TEMAER TIL HELE UI === */
+
+/* Nattesøger - sort */
+.arketype-nattesøger,
+.arketype-nattesøger .overlay,
+.arketype-nattesøger .card,
+.arketype-nattesøger .quest,
+.arketype-nattesøger .progressbar,
+.arketype-nattesøger .kro-mentor-bar {
+  background: #181818 !important;
+  color: #ececec !important;
+  border-color: #3b3b3b !important;
+}
+.arketype-nattesøger .progressbar-fill,
+.arketype-nattesøger .kro-mentor-bar-fill {
+  background: linear-gradient(90deg, #444, #181818 70%) !important;
+}
+
+/* Skyggeskriver - grå */
+.arketype-skyggeskriver,
+.arketype-skyggeskriver .overlay,
+.arketype-skyggeskriver .card,
+.arketype-skyggeskriver .quest,
+.arketype-skyggeskriver .progressbar,
+.arketype-skyggeskriver .kro-mentor-bar {
+  background: #525252 !important;
+  color: #fafafa !important;
+  border-color: #bdbdbd !important;
+}
+.arketype-skyggeskriver .progressbar-fill,
+.arketype-skyggeskriver .kro-mentor-bar-fill {
+  background: linear-gradient(90deg, #bdbdbd, #525252 70%) !important;
+}
+
+/* Tågevogter - grøn */
+.arketype-tågevogter,
+.arketype-tågevogter .overlay,
+.arketype-tågevogter .card,
+.arketype-tågevogter .quest,
+.arketype-tågevogter .progressbar,
+.arketype-tågevogter .kro-mentor-bar {
+  background: #2d5a35 !important;
+  color: #eafbe7 !important;
+  border-color: #71c67a !important;
+}
+.arketype-tågevogter .progressbar-fill,
+.arketype-tågevogter .kro-mentor-bar-fill {
+  background: linear-gradient(90deg, #71c67a, #2d5a35 70%) !important;
+}
+
+/* Sagnsmed - blå */
+.arketype-sagnsmed,
+.arketype-sagnsmed .overlay,
+.arketype-sagnsmed .card,
+.arketype-sagnsmed .quest,
+.arketype-sagnsmed .progressbar,
+.arketype-sagnsmed .kro-mentor-bar {
+  background: #26529b !important;
+  color: #eaf3ff !important;
+  border-color: #7db9ff !important;
+}
+.arketype-sagnsmed .progressbar-fill,
+.arketype-sagnsmed .kro-mentor-bar-fill {
+  background: linear-gradient(90deg, #7db9ff, #26529b 70%) !important;
+}
+
+/* Horisontløber - gul */
+.arketype-horisontløber,
+.arketype-horisontløber .overlay,
+.arketype-horisontløber .card,
+.arketype-horisontløber .quest,
+.arketype-horisontløber .progressbar,
+.arketype-horisontløber .kro-mentor-bar {
+  background: #f9e049 !important;
+  color: #32291f !important;
+  border-color: #f7c873 !important;
+}
+.arketype-horisontløber .progressbar-fill,
+.arketype-horisontløber .kro-mentor-bar-fill {
+  background: linear-gradient(90deg, #f7c873, #f9e049 70%) !important;
+}
+
+/* Trådmester - rød */
+.arketype-trådmester,
+.arketype-trådmester .overlay,
+.arketype-trådmester .card,
+.arketype-trådmester .quest,
+.arketype-trådmester .progressbar,
+.arketype-trådmester .kro-mentor-bar {
+  background: #b44646 !important;
+  color: #fff0f0 !important;
+  border-color: #ff7c7c !important;
+}
+.arketype-trådmester .progressbar-fill,
+.arketype-trådmester .kro-mentor-bar-fill {
+  background: linear-gradient(90deg, #ff7c7c, #b44646 70%) !important;
+}
+
+/* -- GENEREL STYLING -- */
+.progressbar, .kro-mentor-bar {
+  position: relative;
+  width: 100%;
+  height: 22px;
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 10px 0;
+  border: 2px solid;
+  background: #eee;
+}
+.progressbar-fill, .kro-mentor-bar-fill {
+  height: 100%;
+  transition: width 0.4s;
+  border-radius: 8px 0 0 8px;
+}
+
+.overlay {
+  box-shadow: 0 4px 24px rgba(0,0,0,0.14);
+  padding: 2em;
+  border-radius: 14px;
+  font-size: 1.1em;
+  border: 2px solid;
+}
+
+.card, .quest {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+  border-radius: 12px;
+  padding: 1.5em;
+  margin-bottom: 1em;
+  border: 2px solid;
+}
+
+/* -- RESPONSIVT -- */
+@media (max-width: 700px) {
+  .overlay, .card, .quest {
+    padding: 1em;
+    font-size: 1em;
+  }
+}
