@@ -1,3 +1,4 @@
+import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
 
 // --- Mentor-data fra questgenerator.js, hentet ind her ---
@@ -21,25 +22,45 @@ const levelEmblems = {
 
 const MAX_QUESTS_ON_TAVLE = 6;
 
-const story = [
-  {
-    title: "Kapitel 1: Kroens Dør",
-    body: "Du træder ind på Eryndors Kro. Stemningen vibrerer af eventyr. Bag bardisken lyser stjerner op i mørket, og du hører hvisken fra mentorerne..."
-  },
-  {
-    title: "Kapitel 2: De første skridt",
-    body: "Mentorerne samles omkring dig. Hvem vil du tale med først? Hver mentor bærer på hemmeligheder og quests."
-  },
-  {
-    title: "Kapitel 3: Eventyret folder sig ud",
-    body: "Du har gennemført dine første quests. Kroens magi vågner, nye muligheder åbner sig."
-  },
-  {
-    title: "Kapitel 4: Kroens sande hemmeligheder",
-    body: "Du har samlet stjernelys og gjort fremskridt. En skjult dør i kroen åbner sig..."
-  }
-];
+// === NYT: RPG XP SYSTEM ===
+const XP_BASE = 50;      // XP til første level
+const XP_EXPONENT = 1.25; // Kurve, juster hvis du vil (1.15-1.3 for mild, 1.5 for stejl)
 
+// XP for at gå fra level N til N+1
+function xpRequiredForLevel(level) {
+  return Math.floor(XP_BASE * Math.pow(level, XP_EXPONENT));
+}
+// Total XP for at nå et level
+function xpForLevel(level) {
+  let xp = 0;
+  for (let i = 1; i < level; i++) {
+    xp += xpRequiredForLevel(i);
+  }
+  return xp;
+}
+// Find level ud fra XP
+function calcLevel(xp, maxLevel = 100) {
+  for (let lvl = 1; lvl < maxLevel; lvl++) {
+    if (xp < xpForLevel(lvl + 1)) {
+      return lvl;
+    }
+  }
+  return maxLevel;
+}
+// Progress mod næste level
+function calcProgress(xp, maxLevel = 100) {
+  const level = calcLevel(xp, maxLevel);
+  const xpCurrentLevel = xpForLevel(level);
+  const xpNextLevel = xpForLevel(level + 1);
+  return Math.min((xp - xpCurrentLevel) / (xpNextLevel - xpCurrentLevel), 1);
+}
+// Story-funktion for RPG-levels
+function getCurrentStoryChapter() {
+  // Returner aktuel level, så det matcher storyChapters
+  return calcLevel(state.xp) - 1; // -1 da array er 0-indekseret
+}
+
+// === STATE ===
 const state = {
   xp: 0,
   archetypeXP: Object.fromEntries(archetypes.map(a => [a.id, 0])),
@@ -49,20 +70,7 @@ const state = {
   tavleQuests: generateQuestList(MAX_QUESTS_ON_TAVLE)
 };
 
-function calcLevel(xp) {
-  // Foreslået: 20 XP per level
-  return Math.floor(xp / 20) + 1;
-}
-function calcProgress(xp) {
-  return Math.min((xp % 20) / 20, 1);
-}
-function getCurrentStoryChapter() {
-  if (state.completed.length >= 6) return 3;
-  if (state.xp >= 10) return 2;
-  if (state.completed.length >= 1) return 1;
-  return 0;
-}
-
+// === RENDERING ===
 document.body.innerHTML = `
   <div id="overlay">
     <h1 class="kro-header">🍻 Eryndors Kro</h1>
@@ -84,18 +92,18 @@ function renderProgressBar() {
       <div class="kro-xp-bar">
         <div class="kro-xp-bar-fill" style="width:${Math.round(progress * 100)}%"></div>
       </div>
-      <span class="kro-xp-bar-label">Level ${totalLevel} / XP: ${state.xp % 20}/20</span>
+      <span class="kro-xp-bar-label">Level ${totalLevel} / XP: ${state.xp - xpForLevel(totalLevel)} / ${xpRequiredForLevel(totalLevel)}</span>
     </div>
   `;
 }
 
 function renderStory() {
   const div = document.getElementById("story");
-  const chapter = story[getCurrentStoryChapter()];
+  const chapter = storyChapters[getCurrentStoryChapter()];
   div.innerHTML = `
     <div class="kro-storybox">
       <h2 class="kro-storytitle">${chapter.title}</h2>
-      <div class="kro-storybody">${chapter.body}</div>
+      <div class="kro-storybody">${chapter.text}</div>
     </div>
   `;
 }
@@ -112,23 +120,23 @@ function renderProfile() {
     <div class="kro-mentors">
       <div class="kro-mentors-row">
         ${archetypes.map(a => {
-          const level = state.archetypeLevel[a.id];
           const xp = state.archetypeXP[a.id];
+          const level = calcLevel(xp);
           const progress = calcProgress(xp);
           return `
-          <span class="kro-mentorbox" data-mentor="${a.id}">
-            <span class="kro-mentor-main">
-              ${a.icon} <b>${a.name}</b>
+            <span class="kro-mentorbox" data-mentor="${a.id}">
+              <span class="kro-mentor-main">
+                ${a.icon} <b>${a.name}</b>
+              </span>
+              <span class="kro-mentor-progressbar">
+                <span class="kro-mentor-emblem">${levelEmblems[level] || ""}</span>
+                <div class="kro-mentor-bar">
+                  <div class="kro-mentor-bar-fill" style="width:${Math.round(progress * 100)}%"></div>
+                </div>
+                <span class="kro-mentor-bar-label">Level ${level} / XP: ${xp - xpForLevel(level)} / ${xpRequiredForLevel(level)}</span>
+              </span>
             </span>
-            <span class="kro-mentor-progressbar">
-              <span class="kro-mentor-emblem">${levelEmblems[level] || ""}</span>
-              <div class="kro-mentor-bar">
-                <div class="kro-mentor-bar-fill" style="width:${Math.round(progress * 100)}%"></div>
-              </div>
-              <span class="kro-mentor-bar-label">Level ${level} / XP: ${xp % 20}/20</span>
-            </span>
-          </span>
-        `;
+          `;
         }).join("")}
       </div>
     </div>
@@ -147,6 +155,8 @@ function showMentorOverlay(mentorId) {
   // Find quests for denne mentor
   const mentorQuests = state.tavleQuests.concat(state.active)
     .filter(q => q.archetype === mentorId && !q.completed);
+  const xp = state.archetypeXP[mentorId];
+  const level = calcLevel(xp);
   overlay.innerHTML = `
     <div class="kro-mentor-overlaybox">
       <button class="kro-btn kro-close" id="close-mentor-overlay">✖</button>
@@ -155,11 +165,11 @@ function showMentorOverlay(mentorId) {
         <span class="kro-mentor-overlay-title">${mentor.name}</span>
       </div>
       <div class="kro-mentor-overlay-progressbar">
-        <span class="kro-mentor-emblem">${levelEmblems[state.archetypeLevel[mentorId]] || ""}</span>
+        <span class="kro-mentor-emblem">${levelEmblems[level] || ""}</span>
         <div class="kro-mentor-bar">
-          <div class="kro-mentor-bar-fill" style="width:${Math.round(calcProgress(state.archetypeXP[mentorId]) * 100)}%"></div>
+          <div class="kro-mentor-bar-fill" style="width:${Math.round(calcProgress(xp) * 100)}%"></div>
         </div>
-        <span class="kro-mentor-bar-label">Level ${state.archetypeLevel[mentorId]} / XP: ${state.archetypeXP[mentorId] % 20}/20</span>
+        <span class="kro-mentor-bar-label">Level ${level} / XP: ${xp - xpForLevel(level)} / ${xpRequiredForLevel(level)}</span>
       </div>
       <hr />
       <div class="kro-mentor-overlay-quests">
@@ -288,6 +298,7 @@ function renderActiveQuests() {
         if (quest.type === "instant" || quest.completed) {
           state.completed.push(quest);
           state.xp += quest.xp;
+          // Mentor XP/level beregnes nu også via den nye kurve
           state.archetypeXP[quest.archetype] += quest.xp;
           state.archetypeLevel[quest.archetype] = calcLevel(state.archetypeXP[quest.archetype]);
           state.active.splice(idx, 1);
