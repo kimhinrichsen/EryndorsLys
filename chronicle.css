@@ -1,8 +1,9 @@
-/* Eryndors Lys – chronicle.css (v5)
-   Indeholder:
-   - Centreret forside
-   - Bog-view krønike
-   - Scroll lock ved krønike
+/* Eryndors Lys – chronicle.css (v5.1 centrering / bogjustering)
+   Ændringer ift tidligere:
+   - Ensartet max-width på forside-bokse (760px)
+   - Bog: faste sidebredder (360px), centreret spread, smallere cover (180px)
+   - Midterrille i opslag
+   - Responsiv 1-kolonne under 850px
 */
 
 :root {
@@ -64,12 +65,22 @@ html,body {
 }
 .kro-header { margin:0;font-size:1.9rem;letter-spacing:.5px; }
 
+/* Ensartet bredde på alle hovedbokse */
+.kro-xp-bar-container,
+.kro-storybox,
+.kro-profilbox,
+.kro-quests,
+#quests .kro-quests,
+#activequests .kro-quests {
+  max-width:760px;
+}
+
 /* XP bar */
 .kro-xp-bar-container {
   display:flex;align-items:center;gap:.6rem;
   background:#1d252c;border:1px solid #2c3741;
   padding:.6rem .8rem;border-radius:var(--radius);
-  max-width:560px;width:100%;font-size:.75rem;
+  width:100%;font-size:.75rem;
   box-shadow:0 4px 10px rgba(0,0,0,.4);
 }
 .kro-xp-bar { flex:1;height:10px;background:#2f3a44;border-radius:6px;overflow:hidden; }
@@ -84,7 +95,7 @@ html,body {
   border:1px solid var(--panel-border);
   padding:1rem 1.1rem 1.2rem;
   border-radius:var(--radius);
-  width:100%;max-width:760px;
+  width:100%;
   box-shadow:0 4px 12px rgba(0,0,0,.35);
 }
 .kro-storytitle { margin:0 0 .7rem;font-size:1.15rem;letter-spacing:.5px; }
@@ -97,7 +108,7 @@ html,body {
   border:1px solid var(--panel-border);
   padding:.9rem 1rem;
   border-radius:var(--radius);
-  width:100%;max-width:560px;
+  width:100%;
   font-size:.8rem;
   box-shadow:0 4px 12px rgba(0,0,0,.35);
 }
@@ -109,11 +120,22 @@ html,body {
   border:1px solid #2c3741;
   border-radius:8px;
   padding:.45rem .55rem .55rem;
-  display:flex;flex-direction:column;gap:.4rem;
+  display:flex;
+  flex-direction:column;
+  gap:.4rem;
   cursor:pointer;min-width:160px;font-size:.7rem;
   box-shadow:0 3px 6px rgba(0,0,0,.25);
   transition:background .25s, transform .18s;
+  position:relative;
+  overflow:hidden;
 }
+.kro-mentorbox::before {
+  content:"";
+  position:absolute;inset:0;
+  background:linear-gradient(140deg,rgba(255,255,255,.06),rgba(255,255,255,0));
+  opacity:0;transition:opacity .4s;
+}
+.kro-mentorbox:hover::before { opacity:.4; }
 .kro-mentorbox:hover { background:#28323d;transform:translateY(-2px); }
 .kro-mentor-main { font-weight:600;display:flex;gap:.4rem;align-items:center; }
 .kro-mentor-progressbar { display:flex;flex-direction:column;gap:.35rem; }
@@ -123,8 +145,8 @@ html,body {
 .kro-mentor-bar-label { font-size:.65rem;opacity:.85; }
 
 /* Quests */
-.kro-questheader { margin:2rem 0 .9rem;font-size:1.12rem;letter-spacing:.5px; }
-.kro-quests { display:flex;flex-direction:column;gap:.7rem;width:100%;max-width:800px; }
+.kro-questheader { margin:2rem 0 .9rem;font-size:1.12rem;letter-spacing:.5px; width:100%; }
+.kro-quests { display:flex;flex-direction:column;gap:.7rem;width:100%; }
 .kro-questroll {
   background:#1c242b;
   border:1px solid #2a353f;
@@ -133,7 +155,16 @@ html,body {
   font-size:.7rem;line-height:1.1rem;
   box-shadow:0 4px 10px rgba(0,0,0,.25);
   transition:background .25s;
+  position:relative;
+  overflow:hidden;
 }
+.kro-questroll::before {
+  content:"";
+  position:absolute;inset:0;
+  background:linear-gradient(120deg,rgba(255,255,255,.07),rgba(255,255,255,0));
+  opacity:0;transition:opacity .4s;
+}
+.kro-questroll:hover::before { opacity:.5; }
 .kro-questroll:hover { background:#222c34; }
 .kro-questroll b { font-size:.78rem; }
 .kro-questicon { font-size:1.2rem;margin-right:.4rem; }
@@ -263,7 +294,6 @@ html,body {
   box-sizing:border-box;
   align-items:center;
 }
-
 .chron-topbar {
   width:100%;
   display:flex;
@@ -277,7 +307,6 @@ html,body {
   box-shadow:0 4px 14px rgba(0,0,0,.4);
 }
 .chron-title { margin:0;font-size:1.35rem;letter-spacing:.5px; }
-.chron-actions { display:flex;gap:.6rem;align-items:center; }
 
 .book-wrapper {
   width:100%;
@@ -298,8 +327,9 @@ html,body {
 }
 @keyframes bookEnter { from{opacity:0;transform:translateY(12px);} to{opacity:1;transform:translateY(0);} }
 
+/* Smallere cover */
 .book-cover {
-  width:220px;
+  width:180px;
   background:linear-gradient(160deg, var(--book-cover) 0%, #1f1c17 80%);
   border:2px solid var(--book-cover-edge);
   border-right:none;
@@ -366,7 +396,7 @@ html,body {
   border:1px solid #d2c4af;
   border-radius:10px;
   font-size:.7rem;
-  box-shadow:0 4px 12px rgba(0,0,0,.15);
+  box-shadow:0 4px 12px rgba(0,0,0,.18);
   z-index:10;
 }
 .book-pagination .btn.mini {
@@ -380,15 +410,32 @@ html,body {
 
 .page-indicator { font-weight:600; }
 
+/* NY bogspread centrering og faste sider */
 .book-spread {
-  flex:1;
   display:grid;
-  grid-template-columns:1fr 1fr;
+  grid-template-columns:repeat(2, 360px);
   gap:1.6rem;
+  justify-content:center;
   align-content:start;
-  position:relative;
   margin-top:2.2rem;
+  margin-left:auto;
+  margin-right:auto;
+  max-width:760px;
+  width:100%;
+  position:relative;
+  perspective:1600px;
   animation:spreadFade .35s;
+}
+.book-spread::before {
+  content:"";
+  position:absolute;
+  left:50%;
+  top:0;
+  bottom:0;
+  width:1px;
+  background:linear-gradient(to bottom, rgba(0,0,0,.25), rgba(0,0,0,0.05), rgba(0,0,0,.25));
+  pointer-events:none;
+  opacity:.4;
 }
 @keyframes spreadFade { from{opacity:0;transform:translateY(8px);} to{opacity:1;transform:translateY(0);} }
 
@@ -404,6 +451,8 @@ html,body {
   flex-direction:column;
   position:relative;
   overflow:hidden;
+  width:360px;
+  flex:0 0 360px;
 }
 .book-page h3 {
   margin:0 0 .7rem;
@@ -509,16 +558,16 @@ html,body {
 .lore-minor { margin:0 0 0 1.1rem;padding:0;list-style:disc; }
 .lore-minor li { margin:0 0 .2rem; }
 
-/* Book responsive */
-@media (max-width:1080px){
-  .book { flex-direction:column; }
-  .book-cover {
-    width:100%;border-right:2px solid var(--book-cover-edge);
-    border-bottom:none;border-radius:14px 14px 0 0;
+/* Responsive bog: 1 kolonne */
+@media (max-width:850px){
+  .book-spread {
+    grid-template-columns:repeat(1, minmax(300px, 360px));
+    max-width:360px;
   }
+  .book-spread::before { display:none; }
+  .book-cover { width:100%; border-right:2px solid var(--book-cover-edge); border-bottom:none; border-radius:14px 14px 0 0; }
   .book-spine { display:none; }
-  .book-pages { border-left:2px solid #d2c4af;border-top:none;border-radius:0 0 14px 14px; }
-  .book-spread { grid-template-columns:1fr; }
+  .book-pages { border-left:2px solid #d2c4af; border-top:none; border-radius:0 0 14px 14px; }
 }
 
 /* Achievement toast marker */
@@ -530,7 +579,7 @@ html,body {
 /* Fade */
 @keyframes fadeIn { from{opacity:0} to{opacity:1} }
 
-/* Small screens adjustments */
+/* Small screens adjustments (generel) */
 @media (max-width:820px){
   .kro-profilbox,.kro-xp-bar-container,.kro-storybox,.kro-quests { max-width:100%; }
   #chronicle-launcher { width:74px;height:74px; }
