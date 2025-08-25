@@ -2,8 +2,7 @@ import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
 import { archetypes as archetypesFromRegistry, archetypeMap } from './archetypes.js';
 
-// --- Mentor-data fra questgenerator.js, hentet ind her ---
-// ORIGINAL (bevaret for reference – bruges ikke længere aktivt)
+// ORIGINAL liste (bevaret som reference – bruges ikke i logikken mere)
 const archetypesOriginal = [
   { id: "skyggeskriver", name: "Skyggeskriver", icon: "🧙‍♂️" },
   { id: "horisontløber", name: "Horisontløber", icon: "🏇" },
@@ -13,8 +12,7 @@ const archetypesOriginal = [
   { id: "trådmester", name: "Trådmester", icon: "🤹‍♂️" }
 ];
 
-// NY: vi bruger registry (som også indeholder lore) – nattesøger findes ikke som fil endnu,
-// så hvis du har brug for den, må den tilføjes senere.
+// AKTUEL liste (med lore)
 const archetypes = archetypesFromRegistry;
 
 const levelEmblems = {
@@ -27,45 +25,34 @@ const levelEmblems = {
 
 const MAX_QUESTS_ON_TAVLE = 6;
 
-// === NYT: RPG XP SYSTEM ===
-const XP_BASE = 50;      // XP til første level
-const XP_EXPONENT = 1.25; // Kurve, juster hvis du vil (1.15-1.3 for mild, 1.5 for stejl)
+// XP kurve
+const XP_BASE = 50;
+const XP_EXPONENT = 1.25;
 
-// XP for at gå fra level N til N+1
 function xpRequiredForLevel(level) {
   return Math.floor(XP_BASE * Math.pow(level, XP_EXPONENT));
 }
-// Total XP for at nå et level
 function xpForLevel(level) {
   let xp = 0;
-  for (let i = 1; i < level; i++) {
-    xp += xpRequiredForLevel(i);
-  }
+  for (let i = 1; i < level; i++) xp += xpRequiredForLevel(i);
   return xp;
 }
-// Find level ud fra XP
 function calcLevel(xp, maxLevel = 100) {
   for (let lvl = 1; lvl < maxLevel; lvl++) {
-    if (xp < xpForLevel(lvl + 1)) {
-      return lvl;
-    }
+    if (xp < xpForLevel(lvl + 1)) return lvl;
   }
   return maxLevel;
 }
-// Progress mod næste level
 function calcProgress(xp, maxLevel = 100) {
   const level = calcLevel(xp, maxLevel);
   const xpCurrentLevel = xpForLevel(level);
   const xpNextLevel = xpForLevel(level + 1);
   return Math.min((xp - xpCurrentLevel) / (xpNextLevel - xpCurrentLevel), 1);
 }
-// Story-funktion for RPG-levels
 function getCurrentStoryChapter() {
-  // Returner aktuel level, så det matcher storyChapters
-  return calcLevel(state.xp) - 1; // -1 da array er 0-indekseret
+  return calcLevel(state.xp) - 1;
 }
 
-// (Valgfri) Hent lore til mentor-overlay senere, hvis du vil udvide:
 function getMentorLore(id, levelOverride) {
   const a = archetypeMap?.[id];
   if (!a) return null;
@@ -73,7 +60,7 @@ function getMentorLore(id, levelOverride) {
   return a.levels?.find(l => l.level === lvl) || null;
 }
 
-// === STATE ===
+// STATE
 const state = {
   xp: 0,
   archetypeXP: Object.fromEntries(archetypes.map(a => [a.id, 0])),
@@ -83,7 +70,7 @@ const state = {
   tavleQuests: generateQuestList(MAX_QUESTS_ON_TAVLE)
 };
 
-// === RENDERING ===
+// DOM skeleton
 document.body.innerHTML = `
   <div id="overlay">
     <h1 class="kro-header">🍻 Eryndors Kro</h1>
@@ -96,6 +83,7 @@ document.body.innerHTML = `
   </div>
 `;
 
+// RENDER FUNKTIONER
 function renderProgressBar() {
   const totalLevel = calcLevel(state.xp);
   const progress = calcProgress(state.xp);
@@ -112,7 +100,8 @@ function renderProgressBar() {
 
 function renderStory() {
   const div = document.getElementById("story");
-  const chapter = storyChapters[getCurrentStoryChapter()];
+  const idx = Math.max(0, Math.min(storyChapters.length - 1, getCurrentStoryChapter()));
+  const chapter = storyChapters[idx];
   div.innerHTML = `
     <div class="kro-storybox">
       <h2 class="kro-storytitle">${chapter.title}</h2>
@@ -121,7 +110,6 @@ function renderStory() {
   `;
 }
 
-// --- MENTOR VISNING OG OVERLAY ---
 function renderProfile() {
   const div = document.getElementById("profile");
   div.innerHTML = `
@@ -135,7 +123,7 @@ function renderProfile() {
         ${archetypes.map(a => {
           const xp = state.archetypeXP[a.id];
           const level = calcLevel(xp);
-          const progress = calcProgress(xp);
+            const progress = calcProgress(xp);
           return `
             <span class="kro-mentorbox" data-mentor="${a.id}">
               <span class="kro-mentor-main">
@@ -187,7 +175,7 @@ function showMentorOverlay(mentorId) {
         <div class="kro-mentor-lore">
           <p><strong>${lore.majorLore}</strong></p>
           <ul>${(lore.minorLore || []).map(m => `<li>${m}</li>`).join('')}</ul>
-        </div>` : ''
+        </div>` : '<em>Ingen lore for dette level.</em>'
       }
       <hr />
       <div class="kro-mentor-overlay-quests">
@@ -197,10 +185,7 @@ function showMentorOverlay(mentorId) {
             <b>${q.name}</b>
             <div class="kro-questdesc">${q.desc}</div>
             <div class="kro-questpts">XP: <b>${q.xp}</b> | Niveau: ${q.level}</div>
-            ${q.type === "progress"
-              ? `<div>Fremgang: ${q.progress} / ${q.vars[q.goal]}</div>`
-              : ""
-            }
+            ${q.type === "progress" ? `<div>Fremgang: ${q.progress} / ${q.vars[q.goal]}</div>` : ""}
             <span style="color:#aaa;">${state.active.includes(q) ? "Allerede aktiv" : ""}</span>
           </div>
         `).join("")}
@@ -214,7 +199,26 @@ function showMentorOverlay(mentorId) {
   };
 }
 
-// --- RESTEN SOM FØR ---
+// Level-up toast
+function notifyLevelUp(archetypeId, newLevel) {
+  const a = archetypeMap[archetypeId];
+  if (!a) return;
+  const lore = a.levels?.find(l => l.level === newLevel);
+  const box = document.createElement('div');
+  box.className = 'kro-levelup-toast';
+  box.innerHTML = `
+    <strong>${a.name} – Level ${newLevel}!</strong><br/>
+    ${lore ? lore.majorLore : '<em>Ingen lore for dette level endnu.</em>'}
+  `;
+  document.body.appendChild(box);
+  requestAnimationFrame(() => box.classList.add('show'));
+  setTimeout(() => {
+    box.classList.remove('show');
+    setTimeout(() => box.remove(), 400);
+  }, 4500);
+}
+
+// Quest tavle fyld
 function refillTavleQuests() {
   while (state.tavleQuests.length < MAX_QUESTS_ON_TAVLE) {
     state.tavleQuests.push(generateQuestList(1)[0]);
@@ -251,7 +255,7 @@ function renderQuests() {
     questsDiv.appendChild(el);
   });
 
-  Array.from(questsDiv.querySelectorAll("[data-accept]")).forEach(btn => {
+  questsDiv.querySelectorAll("[data-accept]").forEach(btn => {
     btn.onclick = () => {
       const qid = btn.getAttribute("data-accept");
       const idx = state.tavleQuests.findIndex(q => q.id === qid);
@@ -264,7 +268,7 @@ function renderQuests() {
     };
   });
 
-  Array.from(questsDiv.querySelectorAll("[data-progress]")).forEach(btn => {
+  questsDiv.querySelectorAll("[data-progress]").forEach(btn => {
     btn.onclick = () => {
       const qid = btn.getAttribute("data-progress");
       const quest = state.tavleQuests.find(q => q.id === qid);
@@ -306,7 +310,7 @@ function renderActiveQuests() {
     questsDiv.appendChild(el);
   });
 
-  Array.from(questsDiv.querySelectorAll("[data-complete]")).forEach(btn => {
+  questsDiv.querySelectorAll("[data-complete]").forEach(btn => {
     btn.onclick = () => {
       const qid = btn.getAttribute("data-complete");
       const idx = state.active.findIndex(q => q.id === qid);
@@ -314,21 +318,27 @@ function renderActiveQuests() {
         const quest = state.active[idx];
         if (quest.type === "instant" || quest.completed) {
           state.completed.push(quest);
-            state.xp += quest.xp;
-            state.archetypeXP[quest.archetype] += quest.xp;
-            state.archetypeLevel[quest.archetype] = calcLevel(state.archetypeXP[quest.archetype]);
-            state.active.splice(idx, 1);
-            renderProgressBar();
-            renderStory();
-            renderProfile();
-            renderQuests();
-            renderActiveQuests();
+          state.xp += quest.xp;
+          const aId = quest.archetype;
+          if (aId && state.archetypeXP[aId] != null) {
+            const before = calcLevel(state.archetypeXP[aId]);
+            state.archetypeXP[aId] += quest.xp;
+            const after = calcLevel(state.archetypeXP[aId]);
+            state.archetypeLevel[aId] = after;
+            if (after > before) notifyLevelUp(aId, after);
+          }
+          state.active.splice(idx, 1);
+          renderProgressBar();
+          renderStory();
+          renderProfile();
+          renderQuests();
+          renderActiveQuests();
         }
       }
     };
   });
 
-  Array.from(questsDiv.querySelectorAll("[data-drop]")).forEach(btn => {
+  questsDiv.querySelectorAll("[data-drop]").forEach(btn => {
     btn.onclick = () => {
       const qid = btn.getAttribute("data-drop");
       const idx = state.active.findIndex(q => q.id === qid);
@@ -340,7 +350,7 @@ function renderActiveQuests() {
     };
   });
 
-  Array.from(questsDiv.querySelectorAll("[data-progress-active]")).forEach(btn => {
+  questsDiv.querySelectorAll("[data-progress-active]").forEach(btn => {
     btn.onclick = () => {
       const qid = btn.getAttribute("data-progress-active");
       const quest = state.active.find(q => q.id === qid);
@@ -352,7 +362,7 @@ function renderActiveQuests() {
   });
 }
 
-// --- Kald rendering ---
+// INITIAL RENDER
 renderProgressBar();
 renderStory();
 renderProfile();
