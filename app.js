@@ -1,11 +1,4 @@
-/* app.js – komplet fil med multi-karakter, quests, lore, achievements.
-   Ændringer ift. din nuværende version:
-   - Tilføjet avatar komprimering (fileToCompressedDataURL)
-   - serializeState nulstiller meta.avatar (ingen dobbeltlagring)
-   - attachStateFromProfile henter profil.avatar og lægger i runtime state.meta.avatar
-   - Upload-håndteringer bruger komprimering
-   - Ellers uændret struktur og funktionalitet
-*/
+/* (Uændret header-kommentar beholdt) */
 import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
 import {
@@ -820,7 +813,6 @@ function scheduleSave(reason){
 }
 
 function serializeState(){
-  // Fjern avatar duplication (avatar ligger i profil)
   return {
     ...state,
     meta: { ...state.meta, avatar: null },
@@ -834,7 +826,6 @@ function saveState(){
     console.warn('Save fejl', e);
   }
 }
-// Hent runtime + avatar fra aktiv profil
 function attachStateFromProfile(){
   const ps = getActiveProfileState();
   const prof = getActiveProfile();
@@ -845,7 +836,7 @@ function attachStateFromProfile(){
   state = ps;
   return true;
 }
-function loadState(){
+function loadState(){ // (Bevares, men bruges ikke længere ved initial visning)
   ensureProfileStore();
   if(!attachStateFromProfile()){
     showProfileSelector();
@@ -926,6 +917,11 @@ function showProfileSelector(){
     const avatar = currentAvatarSelection || null;
     createProfile(name, avatar, makeFreshState);
     attachStateFromProfile();
+    // Tilføjet: recompute archetype-levels + backfill efter profilvalg/oprettelse
+    archetypes.forEach(a=>{
+      state.archetypeLevel[a.id] = calcLevel(state.archetypeXP[a.id]);
+    });
+    backfillMajorLore();
     state.meta.name = name;
     state.meta.avatar = avatar;
     initAppAfterProfile();
@@ -958,6 +954,11 @@ function renderProfileList(){
     btn.onclick=()=>{
       if(setActiveProfile(btn.getAttribute('data-load'))){
         attachStateFromProfile();
+        // Tilføjet: recompute + backfill her også
+        archetypes.forEach(a=>{
+          state.archetypeLevel[a.id] = calcLevel(state.archetypeXP[a.id]);
+        });
+        backfillMajorLore();
         initAppAfterProfile();
       }
     };
@@ -1052,7 +1053,7 @@ function openCharacterEdit(){
           <label class="upload-inline">
             Upload <input type="file" id="edit-avatar-upload" accept="image/*" hidden>
           </label>
-          <input id="edit-avatar-url" placeholder="Avatar URL..." />
+            <input id="edit-avatar-url" placeholder="Avatar URL..." />
         </div>
       </div>
       <div class="char-edit-actions">
@@ -1205,12 +1206,11 @@ function quickSaveToast(){
   },1300);
 }
 
-/* ---------- INIT ---------- */
+/* ---------- INIT (ændret: altid profilvælger) ---------- */
 function init(){
-  loadState();
-  if(getActiveProfileState()){
-    initAppAfterProfile();
-  }
+  ensureProfileStore();
+  showProfileSelector(); // Altid vis ved opstart
+  // loadState(); // (Ikke længere kaldt – beholdt hvis du senere vil tilbage)
 }
 if(document.readyState==='loading'){
   document.addEventListener('DOMContentLoaded', init);
