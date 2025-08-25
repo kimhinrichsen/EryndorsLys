@@ -1,6 +1,10 @@
-/* app.js – opdateret til multi-karakter med navn og avatar + Quest Generator v3
-   Rettet: avatar <img> tags bruger nu enkeltanførselstegn omkring src for at undgå
-   at indlejrede dobbelte anførselstegn i SVG data-URL ødelægger attributten.
+/* app.js – komplet fil med multi-karakter, quests, lore, achievements.
+   Ændringer ift. din nuværende version:
+   - Tilføjet avatar komprimering (fileToCompressedDataURL)
+   - serializeState nulstiller meta.avatar (ingen dobbeltlagring)
+   - attachStateFromProfile henter profil.avatar og lægger i runtime state.meta.avatar
+   - Upload-håndteringer bruger komprimering
+   - Ellers uændret struktur og funktionalitet
 */
 import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
@@ -21,7 +25,8 @@ import {
   resetActiveProfile,
   deleteProfile,
   updateActiveProfileMeta,
-  PRESET_AVATARS
+  PRESET_AVATARS,
+  getActiveProfile
 } from './profiles.js';
 
 /* ---------- KONSTANTER ---------- */
@@ -90,7 +95,7 @@ function makeFreshState(){
     minorLoreProgress: {},
     meta: {
       name: 'Karakter',
-      avatar: null
+      avatar: null // runtime avatar (ikke persistent)
     }
   };
 }
@@ -500,7 +505,7 @@ function showMentorOverlay(id){
             <span class="kro-mentor-overlay-icon">${mentor.icon||''}</span>
             <span class="kro-mentor-overlay-title">${mentor.name}</span>
           </div>
-          <p class="kro-mentor-background">${mentor.description||''}</p>
+            <p class="kro-mentor-background">${mentor.description||''}</p>
           <div class="kro-mentor-overlay-progressbar">
             <span class="kro-mentor-emblem">${levelEmblems[lv]||''}</span>
             <div class="kro-mentor-bar"><div class="kro-mentor-bar-fill" style="width:${Math.round(calcProgress(xp)*100)}%"></div></div>
@@ -629,7 +634,7 @@ function renderActiveQuests(){
         if(aId && state.archetypeXP[aId]!=null){
           const before=calcLevel(state.archetypeXP[aId]);
           state.archetypeXP[aId]+=quest.xp;
-            const after=calcLevel(state.archetypeXP[aId]);
+          const after=calcLevel(state.archetypeXP[aId]);
           if(after>before){
             handleLevelUpLore(aId, before, after);
           } else {
@@ -815,8 +820,10 @@ function scheduleSave(reason){
 }
 
 function serializeState(){
+  // Fjern avatar duplication (avatar ligger i profil)
   return {
     ...state,
+    meta: { ...state.meta, avatar: null },
     achievementsUnlocked: [...state.achievementsUnlocked]
   };
 }
@@ -827,12 +834,14 @@ function saveState(){
     console.warn('Save fejl', e);
   }
 }
+// Hent runtime + avatar fra aktiv profil
 function attachStateFromProfile(){
   const ps = getActiveProfileState();
+  const prof = getActiveProfile();
   if(!ps) return false;
   ps.achievementsUnlocked = new Set(ps.achievementsUnlocked || []);
-  // Sikre meta felt
   if(!ps.meta) ps.meta = { name:'Karakter', avatar:null };
+  ps.meta.avatar = prof?.avatar || null;
   state = ps;
   return true;
 }
@@ -846,6 +855,36 @@ function loadState(){
     });
     backfillMajorLore();
   }
+}
+
+/* ---------- BILLEDEKOMPRESSOR ---------- */
+async function fileToCompressedDataURL(file, maxSize=96){
+  return new Promise((resolve,reject)=>{
+    const img = new Image();
+    const fr = new FileReader();
+    fr.onload = e=>{
+      img.onload=()=>{
+        const canvas=document.createElement('canvas');
+        const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        canvas.width=w; canvas.height=h;
+        const ctx=canvas.getContext('2d');
+        ctx.drawImage(img,0,0,w,h);
+        let data;
+        try {
+          data = canvas.toDataURL('image/jpeg', 0.8);
+        } catch(_){
+          data = canvas.toDataURL('image/png');
+        }
+        resolve(data);
+      };
+      img.onerror=()=>reject(new Error('Kan ikke læse billede'));
+      img.src = e.target.result;
+    };
+    fr.onerror=()=>reject(fr.error||new Error('FileReader fejl'));
+    fr.readAsDataURL(file);
+  });
 }
 
 /* ---------- PROFILVALG / CREATION ---------- */
@@ -954,15 +993,19 @@ function initAvatarChooser(){
   }
   const up=document.getElementById('avatar-upload');
   if(up){
-    up.onchange=()=>{
+    up.onchange=async ()=>{
       const f=up.files?.[0];
       if(f){
-        const reader=new FileReader();
-        reader.onload=e=>{
-          currentAvatarSelection = e.target.result;
+        try {
+          currentAvatarSelection = await fileToCompressedDataURL(f,96);
+        } catch(e){
+          console.warn('Komprimeringsfejl', e);
+          const reader=new FileReader();
+          reader.onload=ev=> currentAvatarSelection = ev.target.result;
+          reader.readAsDataURL(f);
+        } finally {
           updateChosenPreview(preview);
-        };
-        reader.readAsDataURL(f);
+        }
       }
     };
   }
@@ -1037,12 +1080,19 @@ function openCharacterEdit(){
     uploadLabel.onclick=()=> fileInput?.click();
   }
   if(fileInput){
-    fileInput.onchange=()=>{
+    fileInput.onchange=async ()=>{
       const f=fileInput.files?.[0];
       if(f){
-        const reader=new FileReader();
-        reader.onload=e=>{ tempAvatar=e.target.result; updateTempAvatar(); };
-        reader.readAsDataURL(f);
+        try {
+          tempAvatar = await fileToCompressedDataURL(f,96);
+        } catch(e){
+          console.warn('Komprimering fejlede', e);
+          const reader=new FileReader();
+          reader.onload=ev=>{ tempAvatar=ev.target.result; updateTempAvatar(); };
+          reader.readAsDataURL(f);
+          return;
+        }
+        updateTempAvatar();
       }
     };
   }
@@ -1070,9 +1120,9 @@ function openCharacterEdit(){
     if(confirm('Nulstil denne karakter til 0 XP og tom historik?')){
       resetActiveProfile(makeFreshState);
       attachStateFromProfile();
-      // Bevar navn + avatar valg
       state.meta.name = tempAvatar ? state.meta.name : state.meta.name;
       state.meta.avatar = tempAvatar;
+      updateActiveProfileMeta({ avatar: tempAvatar });
       renderAll();
       scheduleSave('charSoftReset');
       wrap.remove();
@@ -1118,12 +1168,10 @@ function hookGlobalUI(){
   const switchBtn=document.getElementById('switch-profile');
   if(switchBtn){
     switchBtn.onclick=()=>{
-      // Gem først, så tilbage til profilvælger
       saveState();
       showProfileSelector();
     };
   }
-  // Reset-knap (hurtig)
   const resetBtn=document.createElement('button');
   resetBtn.textContent='Nulstil karakter';
   resetBtn.className='btn danger mini char-reset-btn';
