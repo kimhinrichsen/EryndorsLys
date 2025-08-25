@@ -1,8 +1,10 @@
 import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
+import { archetypes as archetypesFromRegistry, archetypeMap } from './archetypes.js';
 
 // --- Mentor-data fra questgenerator.js, hentet ind her ---
-const archetypes = [
+// ORIGINAL (bevaret for reference – bruges ikke længere aktivt)
+const archetypesOriginal = [
   { id: "skyggeskriver", name: "Skyggeskriver", icon: "🧙‍♂️" },
   { id: "horisontløber", name: "Horisontløber", icon: "🏇" },
   { id: "tågevogter", name: "Tågevogter", icon: "🌿" },
@@ -11,7 +13,10 @@ const archetypes = [
   { id: "trådmester", name: "Trådmester", icon: "🤹‍♂️" }
 ];
 
-// Emblems per level
+// NY: vi bruger registry (som også indeholder lore) – nattesøger findes ikke som fil endnu,
+// så hvis du har brug for den, må den tilføjes senere.
+const archetypes = archetypesFromRegistry;
+
 const levelEmblems = {
   1: "🔸",
   2: "✨",
@@ -58,6 +63,14 @@ function calcProgress(xp, maxLevel = 100) {
 function getCurrentStoryChapter() {
   // Returner aktuel level, så det matcher storyChapters
   return calcLevel(state.xp) - 1; // -1 da array er 0-indekseret
+}
+
+// (Valgfri) Hent lore til mentor-overlay senere, hvis du vil udvide:
+function getMentorLore(id, levelOverride) {
+  const a = archetypeMap?.[id];
+  if (!a) return null;
+  const lvl = levelOverride || calcLevel(state.archetypeXP[id]);
+  return a.levels?.find(l => l.level === lvl) || null;
 }
 
 // === STATE ===
@@ -126,7 +139,7 @@ function renderProfile() {
           return `
             <span class="kro-mentorbox" data-mentor="${a.id}">
               <span class="kro-mentor-main">
-                ${a.icon} <b>${a.name}</b>
+                ${a.icon || ''} <b>${a.name}</b>
               </span>
               <span class="kro-mentor-progressbar">
                 <span class="kro-mentor-emblem">${levelEmblems[level] || ""}</span>
@@ -142,7 +155,6 @@ function renderProfile() {
     </div>
   `;
 
-  // Mentor overlay click
   Array.from(div.querySelectorAll("[data-mentor]")).forEach(el => {
     el.onclick = () => showMentorOverlay(el.getAttribute("data-mentor"));
   });
@@ -152,16 +164,16 @@ function showMentorOverlay(mentorId) {
   const mentor = archetypes.find(a => a.id === mentorId);
   if (!mentor) return;
   const overlay = document.getElementById("mentor-overlay");
-  // Find quests for denne mentor
   const mentorQuests = state.tavleQuests.concat(state.active)
     .filter(q => q.archetype === mentorId && !q.completed);
   const xp = state.archetypeXP[mentorId];
   const level = calcLevel(xp);
+  const lore = getMentorLore(mentorId, level);
   overlay.innerHTML = `
     <div class="kro-mentor-overlaybox">
       <button class="kro-btn kro-close" id="close-mentor-overlay">✖</button>
       <div class="kro-mentor-overlay-header">
-        <span class="kro-mentor-overlay-icon">${mentor.icon}</span>
+        <span class="kro-mentor-overlay-icon">${mentor.icon || ''}</span>
         <span class="kro-mentor-overlay-title">${mentor.name}</span>
       </div>
       <div class="kro-mentor-overlay-progressbar">
@@ -171,6 +183,12 @@ function showMentorOverlay(mentorId) {
         </div>
         <span class="kro-mentor-bar-label">Level ${level} / XP: ${xp - xpForLevel(level)} / ${xpRequiredForLevel(level)}</span>
       </div>
+      ${lore ? `
+        <div class="kro-mentor-lore">
+          <p><strong>${lore.majorLore}</strong></p>
+          <ul>${(lore.minorLore || []).map(m => `<li>${m}</li>`).join('')}</ul>
+        </div>` : ''
+      }
       <hr />
       <div class="kro-mentor-overlay-quests">
         <h3 style="margin-top:0;">Quests hos ${mentor.name}</h3>
@@ -294,19 +312,17 @@ function renderActiveQuests() {
       const idx = state.active.findIndex(q => q.id === qid);
       if (idx >= 0) {
         const quest = state.active[idx];
-        // Kun complete hvis quest er instant eller progress er færdig
         if (quest.type === "instant" || quest.completed) {
           state.completed.push(quest);
-          state.xp += quest.xp;
-          // Mentor XP/level beregnes nu også via den nye kurve
-          state.archetypeXP[quest.archetype] += quest.xp;
-          state.archetypeLevel[quest.archetype] = calcLevel(state.archetypeXP[quest.archetype]);
-          state.active.splice(idx, 1);
-          renderProgressBar();
-          renderStory();
-          renderProfile();
-          renderQuests();
-          renderActiveQuests();
+            state.xp += quest.xp;
+            state.archetypeXP[quest.archetype] += quest.xp;
+            state.archetypeLevel[quest.archetype] = calcLevel(state.archetypeXP[quest.archetype]);
+            state.active.splice(idx, 1);
+            renderProgressBar();
+            renderStory();
+            renderProfile();
+            renderQuests();
+            renderActiveQuests();
         }
       }
     };
