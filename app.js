@@ -1,11 +1,10 @@
-/* Eryndors Lys – app.js v7.2 (stabil)
-   - Alt lore: major + minor som separate popups
-   - Kun major arkiveres i krøniken
-   - Popup-kø + archetype-specifik baggrund
-   - Mentorer klikbare, quests virker
-   - Ingen body.innerHTML overskrivning (markup i #app)
-   - DOMContentLoaded init + robuste guards
-   - Kompatibel med eksisterende v7 save (ingen datamodel ændring)
+/* Eryndors Lys – app.js v7.3
+   Ændringer fra v7.2:
+   - Mentor (arketype) overlay viser IKKE længere aktive quests
+   - Overlay indeholder nu kun: Info (baggrund + beskrivelse + progress), Achievements relateret til arketypen og Items
+   - Ensartet, fast layout-størrelse på mentor overlay for at undgå “hop” / dynamisk højde
+   - Mentor-kort (kro-mentorbox) får fast højde så alle er samme størrelse uanset navn/billede
+   - Oprydning af kode der tidligere håndterede quest-listen i overlay
 */
 
 import { storyChapters } from './story.js';
@@ -19,7 +18,7 @@ import {
 
 /* ---------- KONSTANTER ---------- */
 const SAVE_KEY = 'eryndors_state_v7';
-const SAVE_VERSION = 7; // uændret pga. samme datamodel
+const SAVE_VERSION = 7; // stadig samme datamodel
 const SAVE_DEBOUNCE_MS = 400;
 const MAX_QUESTS_ON_TAVLE = 6;
 const XP_BASE = 50;
@@ -90,9 +89,15 @@ const achievementDefs = [
   {id:'total_xp_500', title:'Stjernelys 500', desc:'Opnå 500 samlet XP', check:()=>state.xp>=500},
   ...archetypes.map(a=>({
     id:`archetype_lvl_3_${a.id}`, title:`${a.name} III`, desc:`Nå level 3 med ${a.name}`,
-    check:()=>calcLevel(state.archetypeXP[a.id])>=3
+    check:()=>calcLevel(state.archetypeXP[a.id])>=3,
+    archetype: a.id
   }))
 ];
+
+// Hjælper til at udlede achievements for en specifik arketype
+function achievementsForArchetype(aId){
+  return achievementDefs.filter(a=>a.archetype === aId);
+}
 
 function checkAchievements(reason){
   const newly=[];
@@ -397,52 +402,86 @@ function renderProfile(){
     el.onclick=()=>showMentorOverlay(el.getAttribute('data-mentor'));
   });
 }
+
+// Ny: Mentor overlay uden quests, men med achievements og items
 function showMentorOverlay(id){
   id=canonicalArchetypeId(id);
   const mentor=archetypes.find(a=>a.id===id);
   if(!mentor) return;
   let overlay=document.getElementById('mentor-overlay');
   if(!overlay){ overlay=document.createElement('div'); overlay.id='mentor-overlay'; document.body.appendChild(overlay); }
-  const mentorQuests = state.tavleQuests.concat(state.active).filter(q=>q.archetype===id && !q.completed);
-  const xp=state.archetypeXP[id], lv=calcLevel(xp);
+  const xp=state.archetypeXP[id];
+  const lv=calcLevel(xp);
+  const archAchievements = achievementsForArchetype(id);
+  const items = mentor.items || mentor.itemList || []; // fleksibel fallback
+
+  const achievementHtml = archAchievements.length
+    ? `<div class="mentor-subsection">
+         <h4 class="mentor-subtitle">Achievements</h4>
+         <div class="mentor-ach-grid">
+           ${archAchievements.map(a=>{
+              const unlocked = state.achievementsUnlocked.has(a.id);
+              return `<div class="mentor-ach-item ${unlocked?'unlocked':''}">
+                        <span class="ach-name">${a.title}</span>
+                        <span class="ach-status">${unlocked?'✓':'–'}</span>
+                        <div class="ach-desc">${a.desc}</div>
+                      </div>`;
+            }).join('')}
+         </div>
+       </div>`
+    : `<div class="mentor-subsection"><h4 class="mentor-subtitle">Achievements</h4><em>Ingen specifikke achievements.</em></div>`;
+
+  const itemsHtml = items.length
+    ? `<div class="mentor-subsection">
+         <h4 class="mentor-subtitle">Items</h4>
+         <ul class="mentor-items">
+           ${items.map(it=>{
+              if(typeof it === 'string') return `<li>${it}</li>`;
+              if(it && typeof it === 'object'){
+                return `<li><b>${it.name||'Ukendt'}</b>${it.desc?` – <span class="item-desc">${it.desc}</span>`:''}</li>`;
+              }
+              return '<li>Ukendt</li>';
+            }).join('')}
+         </ul>
+       </div>`
+    : `<div class="mentor-subsection"><h4 class="mentor-subtitle">Items</h4><em>Ingen items (endnu).</em></div>`;
+
   overlay.innerHTML=`
-    <div class="kro-mentor-overlaybox kro-mentor-overlaybox--with-bg" style="--mentor-overlay-bg:url('${getArchetypeImagePath(id)}')">
+    <div class="kro-mentor-overlaybox kro-mentor-overlaybox--with-bg mentor-overlay-fixed" style="--mentor-overlay-bg:url('${getArchetypeImagePath(id)}')">
       <button class="kro-btn kro-close" id="close-mentor-overlay">✖</button>
-      <div class="kro-mentor-overlay-header">
-        <span class="kro-mentor-overlay-icon">${mentor.icon||''}</span>
-        <span class="kro-mentor-overlay-title">${mentor.name}</span>
-      </div>
-      <p class="kro-mentor-background">${mentor.description||''}</p>
-      <div class="kro-mentor-overlay-progressbar">
-        <span class="kro-mentor-emblem">${levelEmblems[lv]||''}</span>
-        <div class="kro-mentor-bar"><div class="kro-mentor-bar-fill" style="width:${Math.round(calcProgress(xp)*100)}%"></div></div>
-        <span class="kro-mentor-bar-label">Level ${lv} – XP: ${xp - xpForLevel(lv)} / ${xpRequiredForLevel(lv)}</span>
-      </div>
-      <hr/>
-      <h3>Quests hos ${mentor.name}</h3>
-      <div class="kro-mentor-overlay-quests">
-        ${mentorQuests.length===0?'<i>Ingen åbne quests.</i>':
-          mentorQuests.map(q=>`
-            <div class="kro-questroll">
-              <b>${q.name}</b>
-              <div class="kro-questdesc">${q.desc}</div>
-              <div class="kro-questpts">XP: <b>${q.xp}</b> | Kravniveau: ${q.level}</div>
-              ${q.type==='progress'?`<div>Fremgang: ${q.progress} / ${q.vars[q.goal]}</div>`:''}
-            </div>`).join('')}
+      <div class="mentor-overlay-columns">
+        <div class="mentor-col mentor-col--info">
+          <div class="kro-mentor-overlay-header">
+            <span class="kro-mentor-overlay-icon">${mentor.icon||''}</span>
+            <span class="kro-mentor-overlay-title">${mentor.name}</span>
+          </div>
+          <p class="kro-mentor-background">${mentor.description||''}</p>
+          <div class="kro-mentor-overlay-progressbar">
+            <span class="kro-mentor-emblem">${levelEmblems[lv]||''}</span>
+            <div class="kro-mentor-bar"><div class="kro-mentor-bar-fill" style="width:${Math.round(calcProgress(xp)*100)}%"></div></div>
+            <span class="kro-mentor-bar-label">Level ${lv} – XP: ${xp - xpForLevel(lv)} / ${xpRequiredForLevel(lv)}</span>
+          </div>
+        </div>
+        <div class="mentor-col mentor-col--lists">
+          ${achievementHtml}
+          ${itemsHtml}
+        </div>
       </div>
     </div>`;
-  overlay.style.cssText='position:fixed;inset:0;background:rgba(32,16,4,0.8);z-index:5500;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(32,16,4,0.82);z-index:5500;display:flex;align-items:center;justify-content:center;padding:20px;';
   document.body.classList.add('lock-scroll');
   const closeBtn=document.getElementById('close-mentor-overlay');
   if(closeBtn) closeBtn.onclick=closeMentorOverlay;
   overlay.addEventListener('mousedown', e=>{ if(e.target===overlay) closeMentorOverlay(); });
 }
+
 function closeMentorOverlay(){
   const overlay=document.getElementById('mentor-overlay');
   if(overlay){ overlay.style.display='none'; overlay.innerHTML=''; }
   document.body.classList.remove('lock-scroll');
   document.documentElement.classList.remove('lock-scroll');
 }
+
 function refillTavleQuests(){
   while(state.tavleQuests.length < MAX_QUESTS_ON_TAVLE){
     const n=generateQuestList(1)[0];
@@ -535,11 +574,11 @@ function renderActiveQuests(){
           const before=calcLevel(state.archetypeXP[aId]);
           state.archetypeXP[aId]+=quest.xp;
           const after=calcLevel(state.archetypeXP[aId]);
-            if(after>before){
-              handleLevelUpLore(aId, before, after);
-            } else {
-              maybeUnlockMinorLore(aId);
-            }
+          if(after>before){
+            handleLevelUpLore(aId, before, after);
+          } else {
+            maybeUnlockMinorLore(aId);
+          }
           state.archetypeLevel[aId]=after;
         }
         state.active.splice(idx,1);
@@ -749,7 +788,7 @@ function migrateOlderKeys(){
       if(d.archetypeXP){
         for(const aId in d.archetypeXP){
           const can=canonicalArchetypeId(aId);
-          if(state.archetypeXP[can]!=null) state.archetypeXP[can]=d.archetypeXP[aId];
+            if(state.archetypeXP[can]!=null) state.archetypeXP[can]=d.archetypeXP[aId];
         }
       }
       if(Array.isArray(d.active)) state.active=d.active.map(q=>{ if(q?.archetype) q.archetype=canonicalArchetypeId(q.archetype); return q; });
@@ -818,7 +857,6 @@ function quickSaveToast(){
 function init(){
   buildStaticMarkup();
   loadState();
-  // Knapper
   const chronBtn=document.getElementById('chronicle-launcher');
   if(chronBtn) chronBtn.onclick=()=>switchView('chronicle');
   const backBtn=document.getElementById('back-to-main');
@@ -836,7 +874,10 @@ function init(){
   scheduleSave('postInit');
 
   window.addEventListener('keydown', e=>{
-    if(e.key==='Escape' && state.currentView==='chronicle') switchView('main');
+    if(e.key==='Escape'){
+      if(state.currentView==='chronicle') switchView('main');
+      else closeMentorOverlay();
+    }
   });
 }
 if(document.readyState==='loading'){
