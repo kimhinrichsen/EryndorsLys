@@ -1,4 +1,4 @@
-/* Eryndors Lys – app.js (ren version med mentorbilleder) */
+/* Eryndors Lys – app.js (udgave med forbedret lore-popup + single-line mentors) */
 
 import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
@@ -9,7 +9,7 @@ import {
   getArchetypeImagePath
 } from './archetypes.js';
 
-console.log('KRONIKE_DIAG v5.2 – init');
+console.log('KRONIKE_DIAG v5.3 – init (lore-popup upgrade)');
 
 const SAVE_KEY = 'eryndors_state_v5';
 const SAVE_DEBOUNCE_MS = 400;
@@ -119,13 +119,15 @@ function showAchievementToast(def){
   },4600);
 }
 
-/* ---------- LORE ---------- */
+/* ---------- LORE (OPDATERET) ---------- */
 function unlockLoreOrFallback(archetypeId, level){
   const lore = getArchetypeLore(archetypeId, level);
+  const archName = archetypeMap[archetypeId]?.name || archetypeId;
   if(!lore){
     if(state.currentView==='main'){
       showLorePopup({
-        archetypeName: archetypeMap[archetypeId]?.name || archetypeId,
+        archetypeId,
+        archetypeName: archName,
         level,
         majorLore:'(Ingen lore endnu – men du steg i niveau!)',
         minorLore:[]
@@ -138,7 +140,7 @@ function unlockLoreOrFallback(archetypeId, level){
     state.chronicleLore.push({
       id:key,
       archetypeId,
-      archetypeName: archetypeMap[archetypeId]?.name || archetypeId,
+      archetypeName: archName,
       level,
       majorLore:lore.majorLore,
       minorLore:lore.minorLore||[],
@@ -147,7 +149,8 @@ function unlockLoreOrFallback(archetypeId, level){
   }
   if(state.currentView==='main'){
     showLorePopup({
-      archetypeName: archetypeMap[archetypeId]?.name || archetypeId,
+      archetypeId,
+      archetypeName: archName,
       level,
       majorLore:lore.majorLore,
       minorLore:lore.minorLore||[]
@@ -157,6 +160,8 @@ function unlockLoreOrFallback(archetypeId, level){
 }
 
 function showLorePopup(entry){
+  const imgPath = entry.archetypeId ? getArchetypeImagePath(entry.archetypeId) : null;
+
   let container=document.getElementById('lore-popup-container');
   if(!container){
     container=document.createElement('div');
@@ -164,22 +169,56 @@ function showLorePopup(entry){
     container.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:5000;';
     document.body.appendChild(container);
   }
+
   const wrap=document.createElement('div');
-  wrap.style.cssText='position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(15,18,25,.55);backdrop-filter:blur(4px);pointer-events:auto;z-index:5001;';
+  wrap.className='lore-overlay-wrap';
   wrap.innerHTML=`
-    <div class="lore-popup">
-      <button id="close-lore-popup" class="lp-close">✖</button>
-      <h2>${entry.archetypeName} – Level ${entry.level}</h2>
-      <p class="lp-major">${entry.majorLore}</p>
-      ${entry.minorLore.length?`<ul class="lp-minor">${entry.minorLore.map(m=>`<li>${m}</li>`).join('')}</ul>`:''}
+    <div class="lore-popup lore-popup-appear" ${entry.archetypeId?`data-archetype="${entry.archetypeId}"`:''}>
+      <button id="close-lore-popup" class="lp-close" aria-label="Luk">✖</button>
+      <div class="lp-top">
+        <h2 class="lp-title">
+          <span class="lp-ornament">✦</span>
+          ${entry.archetypeName} – Level ${entry.level}
+          <span class="lp-ornament">✦</span>
+        </h2>
+      </div>
+      <div class="lp-body">
+        ${imgPath ? `
+          <div class="lp-bg-media">
+            <img src="${imgPath}" alt="" loading="lazy" decoding="async">
+          </div>` : '' }
+        <p class="lp-major">${entry.majorLore}</p>
+        ${entry.minorLore && entry.minorLore.length
+          ? `<ul class="lp-minor">${entry.minorLore.map(m=>`<li>${m}</li>`).join('')}</ul>`
+          : ''
+        }
+      </div>
       <div class="lp-actions">
-        <button id="dismiss-lore" class="btn primary">Luk</button>
+        <button id="dismiss-lore" class="btn primary lp-ok-btn">Fortsæt</button>
       </div>
     </div>`;
   container.appendChild(wrap);
-  const close=()=>{ wrap.style.opacity='0'; wrap.style.transition='opacity .3s'; setTimeout(()=>wrap.remove(),260); };
+
+  const popup = wrap.querySelector('.lore-popup');
+  void popup.offsetWidth; // reflow til animation
+
+  const close=()=>{
+    popup.classList.remove('lore-popup-appear');
+    popup.classList.add('lore-popup-leave');
+    wrap.classList.add('lore-overlay-fade');
+    setTimeout(()=>wrap.remove(), 320);
+  };
   wrap.querySelector('#close-lore-popup').onclick=close;
   wrap.querySelector('#dismiss-lore').onclick=close;
+  wrap.addEventListener('mousedown', e=>{
+    if(e.target===wrap) close();
+  });
+  window.addEventListener('keydown', function esc(e){
+    if(e.key==='Escape'){
+      close();
+      window.removeEventListener('keydown', esc);
+    }
+  });
 }
 
 /* ---------- DOM SKELETON ---------- */
