@@ -1,8 +1,8 @@
-/* Eryndors Lys – app.js (opdateret til Quest Generator v3)
-   Fokus:
-   - Bruger ny questgenerator med playerLevel + archetypeLevels
-   - progress quests begrænses automatisk af generatoren
-   - Mentorer overlay uden aktive quests (info, achievements, items)
+/* app.js – opdateret til multi-karakter med navn og avatar + Quest Generator v3
+   Funktioner:
+   - Karaktervalg / oprettelse med navn + avatar
+   - Blød reset (nulstil aktiv karakter)
+   - Fuld questmotor allerede integreret
 */
 
 import { storyChapters } from './story.js';
@@ -14,21 +14,32 @@ import {
   getArchetypeImagePath
 } from './archetypes.js';
 
+import {
+  ensureProfileStore,
+  listProfiles,
+  createProfile,
+  setActiveProfile,
+  getActiveProfileState,
+  overwriteActiveProfileState,
+  resetActiveProfile,
+  deleteProfile,
+  updateActiveProfileMeta,
+  PRESET_AVATARS
+} from './profiles.js';
+
 /* ---------- KONSTANTER ---------- */
-const SAVE_KEY = 'eryndors_state_v8';
 const SAVE_VERSION = 8;
 const SAVE_DEBOUNCE_MS = 400;
 const MAX_QUESTS_ON_TAVLE = 6;
 const XP_BASE = 50;
 const XP_EXPONENT = 1.25;
 const levelEmblems = {1:"🔸",2:"✨",3:"⭐",4:"🌟",5:"🌠"};
+const archetypes = archetypesFromRegistry;
 
 const LORE_CONFIG = {
   major: { mode: 'popup', archive: true },
   minor: { mode: 'popup', archive: false }
 };
-
-const archetypes = archetypesFromRegistry;
 
 /* ---------- GLOBAL FEJL LOGGING ---------- */
 window.addEventListener('error', e=>console.error('[GLOBAL ERROR]', e.message, e.error));
@@ -65,21 +76,28 @@ function canonicalArchetypeId(raw){
   return _canonIdx.map[n] || raw;
 }
 
-/* ---------- STATE ---------- */
-const state = {
-  v: SAVE_VERSION,
-  currentView: 'main',
-  xp: 0,
-  archetypeXP: Object.fromEntries(archetypes.map(a=>[a.id,0])),
-  archetypeLevel: Object.fromEntries(archetypes.map(a=>[a.id,1])),
-  active: [],
-  completed: [],
-  tavleQuests: [],
-  chronicleLore: [],
-  achievementsUnlocked: new Set(),
-  bookPageIndex: 0,
-  minorLoreProgress: {}
-};
+/* ---------- STATE FACTORY ---------- */
+function makeFreshState(){
+  return {
+    v: SAVE_VERSION,
+    currentView: 'main',
+    xp: 0,
+    archetypeXP: Object.fromEntries(archetypes.map(a=>[a.id,0])),
+    archetypeLevel: Object.fromEntries(archetypes.map(a=>[a.id,1])),
+    active: [],
+    completed: [],
+    tavleQuests: [],
+    chronicleLore: [],
+    achievementsUnlocked: new Set(),
+    bookPageIndex: 0,
+    minorLoreProgress: {},
+    meta: {
+      name: 'Karakter',
+      avatar: null
+    }
+  };
+}
+let state = makeFreshState();
 
 /* ---------- ACHIEVEMENTS ---------- */
 const achievementDefs = [
@@ -92,11 +110,11 @@ const achievementDefs = [
     archetype: a.id
   }))
 ];
-
 function achievementsForArchetype(aId){
   return achievementDefs.filter(a=>a.archetype === aId);
 }
 
+/* ---------- ACHIEVEMENT LOGIK ---------- */
 function checkAchievements(reason){
   const newly=[];
   for(const def of achievementDefs){
@@ -134,7 +152,7 @@ function showAchievementToast(def){
   },4600);
 }
 
-/* ---------- LORE PROGRESS ---------- */
+/* ---------- LORE ---------- */
 function getMinorShownCount(archetypeId, level){
   return state.minorLoreProgress[archetypeId]?.[level] || 0;
 }
@@ -216,7 +234,7 @@ function backfillMajorLore(){
   });
 }
 
-/* ---------- POPUP KØ ---------- */
+/* ---------- POPUP QUEUE ---------- */
 const popupQueue = [];
 let popupActive = false;
 function ensurePopupContainer(){
@@ -283,7 +301,14 @@ function buildStaticMarkup(){
   r.innerHTML=`
     <div id="main-view" class="view">
       <header class="top-header">
+        <div class="char-header">
+          <div class="char-avatar-wrap" id="char-avatar-display"></div>
+          <div class="char-name" id="char-name-display"></div>
+        </div>
         <h1 class="kro-header">🍻 Eryndors Kro</h1>
+        <div class="header-right">
+          <button id="switch-profile" class="btn ghost mini">Skift Karakter</button>
+        </div>
       </header>
       <section id="progressbar"></section>
       <section id="story"></section>
@@ -352,6 +377,20 @@ function switchView(view){
 }
 
 /* ---------- RENDERING ---------- */
+function renderCharacterHeader(){
+  const av=document.getElementById('char-avatar-display');
+  const nm=document.getElementById('char-name-display');
+  if(av){
+    if(state.meta.avatar){
+      av.innerHTML=`<img src="${state.meta.avatar}" alt="Avatar" class="char-avatar">`;
+    } else {
+      av.innerHTML=`<div class="char-avatar placeholder">?</div>`;
+    }
+  }
+  if(nm){
+    nm.textContent = state.meta.name || 'Karakter';
+  }
+}
 function renderProgressBar(){
   const L=getPlayerLevel(), p=calcProgress(state.xp);
   const el=document.getElementById('progressbar'); if(!el) return;
@@ -377,6 +416,7 @@ function renderProfile(){
   div.innerHTML=`
     <div class="kro-profilbox">
       <span class="kro-xp-header">🍺 Stjernelys: <b>${state.xp}</b> 🪙</span>
+      <button class="btn mini ghost" id="edit-character-btn">Redigér Karakter</button>
     </div>
     <div class="kro-mentors">
       <div class="kro-mentors-row">
@@ -397,6 +437,10 @@ function renderProfile(){
   div.querySelectorAll('.kro-mentorbox[data-mentor]').forEach(el=>{
     el.onclick=()=>showMentorOverlay(el.getAttribute('data-mentor'));
   });
+  const editBtn=document.getElementById('edit-character-btn');
+  if(editBtn){
+    editBtn.onclick=()=>openCharacterEdit();
+  }
 }
 
 function rarityBadge(r){
@@ -411,7 +455,7 @@ function rarityBadge(r){
   return `<span class="quest-rarity quest-rarity--${r}" style="color:${m.c};background:${m.bg};">${r}</span>`;
 }
 
-/* ---------- MENTOR OVERLAY (ingen aktive quests) ---------- */
+/* ---------- MENTOR OVERLAY ---------- */
 function showMentorOverlay(id){
   id=canonicalArchetypeId(id);
   const mentor=archetypes.find(a=>a.id===id);
@@ -422,7 +466,6 @@ function showMentorOverlay(id){
   const lv=calcLevel(xp);
   const archAchievements = achievementsForArchetype(id);
   const items = mentor.items || mentor.itemList || [];
-
   const achievementHtml = archAchievements.length
     ? `<div class="mentor-subsection">
          <h4 class="mentor-subtitle">Achievements</h4>
@@ -437,7 +480,6 @@ function showMentorOverlay(id){
             }).join('')}
          </div>
        </div>` : '';
-
   const itemsHtml = items.length
     ? `<div class="mentor-subsection">
          <h4 class="mentor-subtitle">Items</h4>
@@ -498,9 +540,7 @@ function refillTavleQuests(){
     if(n){
       n.archetype=canonicalArchetypeId(n.archetype);
       state.tavleQuests.push(n);
-    } else {
-      break;
-    }
+    } else break;
   }
 }
 function renderQuests(){
@@ -584,14 +624,14 @@ function renderActiveQuests(){
         if(!goalOk) return;
         state.completed.push({
           id:quest.id, name:quest.name, archetype:quest.archetype,
-            xp:quest.xp, type:quest.type, levelRequirement:quest.level, completedAt:Date.now(),
-            rarity:quest.rarity||''
+          xp:quest.xp, type:quest.type, levelRequirement:quest.level, completedAt:Date.now(),
+          rarity:quest.rarity||''
         });
         state.xp += quest.xp;
         const aId=canonicalArchetypeId(quest.archetype);
         if(aId && state.archetypeXP[aId]!=null){
           const before=calcLevel(state.archetypeXP[aId]);
-            state.archetypeXP[aId]+=quest.xp;
+          state.archetypeXP[aId]+=quest.xp;
           const after=calcLevel(state.archetypeXP[aId]);
           if(after>before){
             handleLevelUpLore(aId, before, after);
@@ -602,6 +642,7 @@ function renderActiveQuests(){
         }
         state.active.splice(idx,1);
         renderProgressBar(); renderStory(); renderProfile(); renderQuests(); renderActiveQuests();
+        renderCharacterHeader();
         checkAchievements('questComplete');
         scheduleSave('questComplete');
       }
@@ -769,92 +810,338 @@ document.addEventListener('click', e=>{
   }
 });
 
-/* ---------- PERSISTENCE ---------- */
+/* ---------- PERSISTENCE VIA PROFILES ---------- */
 let _saveTimer=null;
 function scheduleSave(reason){
   if(_saveTimer) clearTimeout(_saveTimer);
   _saveTimer=setTimeout(()=>saveState(reason), SAVE_DEBOUNCE_MS);
 }
-function serialize(){
+
+function serializeState(){
   return {
-    v: SAVE_VERSION,
-    currentView: state.currentView,
-    xp: state.xp,
-    archetypeXP: state.archetypeXP,
-    archetypeLevel: state.archetypeLevel,
-    active: state.active,
-    completed: state.completed,
-    tavleQuests: state.tavleQuests,
-    chronicleLore: state.chronicleLore,
-    achievementsUnlocked: [...state.achievementsUnlocked],
-    bookPageIndex: state.bookPageIndex,
-    minorLoreProgress: state.minorLoreProgress
+    ...state,
+    achievementsUnlocked: [...state.achievementsUnlocked]
   };
 }
 function saveState(){
-  try{ localStorage.setItem(SAVE_KEY, JSON.stringify(serialize())); }
-  catch(e){ console.warn('Save fejl', e); }
-}
-function migrateOlder(){
-  const oldKeys=['eryndors_state_v7','eryndors_state_v6','eryndors_state_v5','eryndors_state_v4','eryndors_state_v3','eryndors_state_v2','eryndors_state_v1'];
-  for(const k of oldKeys){
-    const raw=localStorage.getItem(k);
-    if(!raw) continue;
-    try{
-      const d=JSON.parse(raw);
-      if(typeof d.xp==='number') state.xp=d.xp;
-      if(d.archetypeXP){
-        for(const aId in d.archetypeXP){
-          const can=canonicalArchetypeId(aId);
-          if(state.archetypeXP[can]!=null) state.archetypeXP[can]=d.archetypeXP[aId];
-        }
-      }
-      if(Array.isArray(d.active)) state.active=d.active;
-      if(Array.isArray(d.completed)) state.completed=d.completed;
-      if(Array.isArray(d.tavleQuests)) state.tavleQuests=d.tavleQuests;
-      if(Array.isArray(d.chronicleLore)) state.chronicleLore=d.chronicleLore;
-      if(Array.isArray(d.achievementsUnlocked)) state.achievementsUnlocked=new Set(d.achievementsUnlocked);
-      if(typeof d.bookPageIndex==='number') state.bookPageIndex=d.bookPageIndex;
-      if(d.minorLoreProgress) state.minorLoreProgress=d.minorLoreProgress;
-      return true;
-    }catch(e){ console.warn('Migration fejl', k, e); }
+  try {
+    overwriteActiveProfileState(serializeState());
+  } catch(e){
+    console.warn('Save fejl', e);
   }
-  return false;
+}
+function attachStateFromProfile(){
+  const ps = getActiveProfileState();
+  if(!ps) return false;
+  ps.achievementsUnlocked = new Set(ps.achievementsUnlocked || []);
+  // Sikre meta felt
+  if(!ps.meta) ps.meta = { name:'Karakter', avatar:null };
+  state = ps;
+  return true;
 }
 function loadState(){
-  try{
-    const raw=localStorage.getItem(SAVE_KEY);
-    if(raw){
-      const data=JSON.parse(raw);
-      if(data?.v===SAVE_VERSION){
-        state.currentView=data.currentView||'main';
-        state.xp=data.xp ?? state.xp;
-        Object.assign(state.archetypeXP, data.archetypeXP||{});
-        Object.assign(state.archetypeLevel, data.archetypeLevel||{});
-        if(Array.isArray(data.active)) state.active=data.active;
-        if(Array.isArray(data.completed)) state.completed=data.completed;
-        if(Array.isArray(data.tavleQuests)) state.tavleQuests=data.tavleQuests;
-        if(Array.isArray(data.chronicleLore)) state.chronicleLore=data.chronicleLore;
-        if(Array.isArray(data.achievementsUnlocked)) state.achievementsUnlocked=new Set(data.achievementsUnlocked);
-        if(typeof data.bookPageIndex==='number') state.bookPageIndex=data.bookPageIndex;
-        if(data.minorLoreProgress) state.minorLoreProgress=data.minorLoreProgress;
-      } else {
-        migrateOlder();
-      }
-    } else {
-      migrateOlder();
-    }
-    [...state.active, ...state.tavleQuests, ...state.completed].forEach(q=>{
-      if(q?.archetype) q.archetype=canonicalArchetypeId(q.archetype);
-    });
+  ensureProfileStore();
+  if(!attachStateFromProfile()){
+    showProfileSelector();
+  } else {
     archetypes.forEach(a=>{
-      state.archetypeLevel[a.id]=calcLevel(state.archetypeXP[a.id]);
+      state.archetypeLevel[a.id] = calcLevel(state.archetypeXP[a.id]);
     });
     backfillMajorLore();
-  }catch(e){ console.warn('Load fejl', e); }
+  }
 }
 
-/* ---------- MANUEL GEM ---------- */
+/* ---------- PROFILVALG / CREATION ---------- */
+function showProfileSelector(){
+  const r=root();
+  if(!r){
+    console.error('Ingen #app');
+    return;
+  }
+  r.innerHTML = `
+    <div class="profile-select-screen">
+      <h1>Eryndors Lys</h1>
+      <p class="ps-intro">Vælg en eksisterende karakter eller opret en ny.</p>
+      <div class="ps-list" id="ps-list"></div>
+      <div class="ps-create">
+        <h3>Opret ny</h3>
+        <label class="ps-label">Navn
+          <input id="new-prof-name" placeholder="Navn..." />
+        </label>
+        <div class="avatar-section">
+          <div class="avatar-preset-grid" id="avatar-preset-grid"></div>
+          <div class="avatar-upload-block">
+            <label class="ps-label">Upload avatar
+              <input type="file" id="avatar-upload" accept="image/*" />
+            </label>
+            <label class="ps-label">Eller URL
+              <input id="avatar-url" placeholder="https://..." />
+            </label>
+          </div>
+        </div>
+        <div class="chosen-avatar-preview" id="chosen-avatar-preview"></div>
+        <button id="create-prof" class="btn primary wide">Opret Karakter</button>
+      </div>
+    </div>`;
+  renderProfileList();
+  initAvatarChooser();
+  document.getElementById('create-prof').onclick=()=>{
+    const name = document.getElementById('new-prof-name').value.trim() || 'Karakter';
+    const avatar = currentAvatarSelection || null;
+    createProfile(name, avatar, makeFreshState);
+    attachStateFromProfile();
+    state.meta.name = name;
+    state.meta.avatar = avatar;
+    initAppAfterProfile();
+  };
+}
+
+function renderProfileList(){
+  const listEl=document.getElementById('ps-list');
+  if(!listEl) return;
+  const profiles=listProfiles();
+  if(!profiles.length){
+    listEl.innerHTML='<em>Ingen karakterer endnu.</em>';
+    return;
+  }
+  listEl.innerHTML=profiles.map(p=>`
+    <div class="ps-item" data-pid="${p.id}">
+      <div class="ps-left">
+        <div class="ps-avatar">${p.avatar?`<img src="${p.avatar}" alt="">`:'<span class="ps-avatar-placeholder">?</span>'}</div>
+        <div class="ps-info">
+          <div class="ps-name">${p.name}</div>
+          <div class="ps-meta">XP: ${p.xp}</div>
+        </div>
+      </div>
+      <div class="ps-item-actions">
+        <button class="btn mini" data-load="${p.id}">Spil</button>
+        <button class="btn mini danger" data-del="${p.id}">Slet</button>
+      </div>
+    </div>`).join('');
+  listEl.querySelectorAll('[data-load]').forEach(btn=>{
+    btn.onclick=()=>{
+      if(setActiveProfile(btn.getAttribute('data-load'))){
+        attachStateFromProfile();
+        initAppAfterProfile();
+      }
+    };
+  });
+  listEl.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.onclick=()=>{
+      const pid=btn.getAttribute('data-del');
+      if(confirm('Slet denne karakter permanent?')){
+        deleteProfile(pid);
+        renderProfileList();
+      }
+    };
+  });
+}
+
+/* ---------- AVATARVALG ---------- */
+let currentAvatarSelection = null;
+
+function initAvatarChooser(){
+  const grid=document.getElementById('avatar-preset-grid');
+  const preview=document.getElementById('chosen-avatar-preview');
+  if(grid){
+    grid.innerHTML = PRESET_AVATARS.map(a=>`
+      <button class="avatar-choice" data-avatar="${a.src}" title="${a.label}">
+        <img src="${a.src}" alt="${a.label}">
+      </button>`).join('');
+    grid.querySelectorAll('.avatar-choice').forEach(btn=>{
+      btn.onclick=()=>{
+        currentAvatarSelection = btn.getAttribute('data-avatar');
+        updateChosenPreview(preview);
+      };
+    });
+  }
+  const up=document.getElementById('avatar-upload');
+  if(up){
+    up.onchange=()=>{
+      const f=up.files?.[0];
+      if(f){
+        const reader=new FileReader();
+        reader.onload=e=>{
+          currentAvatarSelection = e.target.result;
+          updateChosenPreview(preview);
+        };
+        reader.readAsDataURL(f);
+      }
+    };
+  }
+  const urlInput=document.getElementById('avatar-url');
+  if(urlInput){
+    urlInput.onchange=()=>{
+      const val=urlInput.value.trim();
+      if(val){
+        currentAvatarSelection=val;
+        updateChosenPreview(preview);
+      }
+    };
+  }
+}
+function updateChosenPreview(preview){
+  if(!preview) return;
+  if(currentAvatarSelection){
+    preview.innerHTML=`<div class="chosen-label">Valgt Avatar:</div><img src="${currentAvatarSelection}" alt="Valgt" class="chosen-avatar-img">`;
+  } else {
+    preview.innerHTML=`<em>Ingen avatar valgt</em>`;
+  }
+}
+
+/* ---------- KARAKTER REDIGERING ---------- */
+function openCharacterEdit(){
+  const wrap=document.createElement('div');
+  wrap.className='char-edit-overlay';
+  wrap.innerHTML=`
+    <div class="char-edit-modal">
+      <button class="char-edit-close" aria-label="Luk">✖</button>
+      <h3>Redigér Karakter</h3>
+      <label>Navn
+        <input id="edit-char-name" value="${state.meta.name||''}" />
+      </label>
+      <div class="char-edit-avatar-block">
+        <div class="char-current-avatar">${state.meta.avatar?`<img src="${state.meta.avatar}" alt="">`:'<span class="ps-avatar-placeholder large">?</span>'}</div>
+        <div class="char-avatar-actions">
+          <div class="mini-avatar-grid">
+            ${PRESET_AVATARS.map(a=>`
+              <button class="mini-avatar-btn" data-mini-avatar="${a.src}" title="${a.label}">
+                <img src="${a.src}" alt="${a.label}">
+              </button>`).join('')}
+          </div>
+          <label class="upload-inline">
+            Upload <input type="file" id="edit-avatar-upload" accept="image/*" hidden>
+          </label>
+          <input id="edit-avatar-url" placeholder="Avatar URL..." />
+        </div>
+      </div>
+      <div class="char-edit-actions">
+        <button class="btn primary" id="char-edit-save">Gem</button>
+        <button class="btn danger" id="char-edit-reset">Nulstil karakter (XP=0)</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+
+  let tempAvatar = state.meta.avatar || null;
+
+  wrap.querySelectorAll('[data-mini-avatar]').forEach(btn=>{
+    btn.onclick=()=>{
+      tempAvatar=btn.getAttribute('data-mini-avatar');
+      updateTempAvatar();
+    };
+  });
+  function updateTempAvatar(){
+    const cur=wrap.querySelector('.char-current-avatar');
+    if(cur) cur.innerHTML = tempAvatar?`<img src="${tempAvatar}" alt="">`:'<span class="ps-avatar-placeholder large">?</span>';
+  }
+  const fileInput=wrap.querySelector('#edit-avatar-upload');
+  const uploadLabel=wrap.querySelector('.upload-inline');
+  if(uploadLabel){
+    uploadLabel.onclick=()=> fileInput?.click();
+  }
+  if(fileInput){
+    fileInput.onchange=()=>{
+      const f=fileInput.files?.[0];
+      if(f){
+        const reader=new FileReader();
+        reader.onload=e=>{ tempAvatar=e.target.result; updateTempAvatar(); };
+        reader.readAsDataURL(f);
+      }
+    };
+  }
+  const urlInput=wrap.querySelector('#edit-avatar-url');
+  if(urlInput){
+    urlInput.onchange=()=>{
+      const val=urlInput.value.trim();
+      if(val){ tempAvatar=val; updateTempAvatar(); }
+    };
+  }
+  wrap.querySelector('.char-edit-close').onclick=()=>wrap.remove();
+  wrap.addEventListener('mousedown', e=>{ if(e.target===wrap) wrap.remove(); });
+
+  wrap.querySelector('#char-edit-save').onclick=()=>{
+    const newName = (wrap.querySelector('#edit-char-name').value.trim()) || 'Karakter';
+    state.meta.name = newName;
+    state.meta.avatar = tempAvatar;
+    updateActiveProfileMeta({ name:newName, avatar: tempAvatar });
+    renderCharacterHeader();
+    renderProfile();
+    scheduleSave('charEdit');
+    wrap.remove();
+  };
+  wrap.querySelector('#char-edit-reset').onclick=()=>{
+    if(confirm('Nulstil denne karakter til 0 XP og tom historik?')){
+      resetActiveProfile(makeFreshState);
+      attachStateFromProfile();
+      // Bevar navn + avatar valg
+      state.meta.name = tempAvatar ? state.meta.name : state.meta.name;
+      state.meta.avatar = tempAvatar;
+      renderAll();
+      scheduleSave('charSoftReset');
+      wrap.remove();
+    }
+  };
+}
+
+/* ---------- FULL RENDER ---------- */
+function renderAll(){
+  renderCharacterHeader();
+  renderProgressBar();
+  renderStory();
+  renderProfile();
+  renderQuests();
+  renderActiveQuests();
+  switchView(state.currentView);
+  checkAchievements('renderAll');
+}
+
+/* ---------- INIT EFTER PROFIL ---------- */
+function initAppAfterProfile(){
+  buildStaticMarkup();
+  // generér første tavle hvis tom
+  if(!state.tavleQuests.length){
+    state.tavleQuests = generateQuestList(
+      MAX_QUESTS_ON_TAVLE,
+      { playerLevel: getPlayerLevel(), archetypeLevels: state.archetypeLevel }
+    );
+  }
+  hookGlobalUI();
+  renderAll();
+  scheduleSave('initAfterProfile');
+}
+
+/* ---------- UI HOOKS ---------- */
+function hookGlobalUI(){
+  const chronBtn=document.getElementById('chronicle-launcher');
+  if(chronBtn) chronBtn.onclick=()=>switchView('chronicle');
+  const backBtn=document.getElementById('back-to-main');
+  if(backBtn) backBtn.onclick=()=>switchView('main');
+  const saveNow=document.getElementById('save-now');
+  if(saveNow) saveNow.onclick=()=>{ saveState('manual'); quickSaveToast(); };
+  const switchBtn=document.getElementById('switch-profile');
+  if(switchBtn){
+    switchBtn.onclick=()=>{
+      // Gem først, så tilbage til profilvælger
+      saveState();
+      showProfileSelector();
+    };
+  }
+  // Reset-knap (hurtig)
+  const resetBtn=document.createElement('button');
+  resetBtn.textContent='Nulstil karakter';
+  resetBtn.className='btn danger mini char-reset-btn';
+  resetBtn.onclick=()=>{
+    if(confirm('Nulstil denne karakter helt?')){
+      resetActiveProfile(makeFreshState);
+      attachStateFromProfile();
+      renderAll();
+      scheduleSave('resetProfile');
+    }
+  };
+  document.body.appendChild(resetBtn);
+}
+
+/* ---------- QUICK SAVE TOAST ---------- */
 function quickSaveToast(){
   const t=document.createElement('div');
   t.textContent='Gemt';
@@ -875,46 +1162,16 @@ function quickSaveToast(){
 
 /* ---------- INIT ---------- */
 function init(){
-  buildStaticMarkup();
   loadState();
-
-  // Initial tavle hvis tom (brug nye parametre)
-  if(!state.tavleQuests.length){
-    state.tavleQuests = generateQuestList(
-      MAX_QUESTS_ON_TAVLE,
-      { playerLevel: getPlayerLevel(), archetypeLevels: state.archetypeLevel }
-    );
+  if(getActiveProfileState()){
+    initAppAfterProfile();
   }
-
-  const chronBtn=document.getElementById('chronicle-launcher');
-  if(chronBtn) chronBtn.onclick=()=>switchView('chronicle');
-  const backBtn=document.getElementById('back-to-main');
-  if(backBtn) backBtn.onclick=()=>switchView('main');
-  const saveNow=document.getElementById('save-now');
-  if(saveNow) saveNow.onclick=()=>{ saveState('manual'); quickSaveToast(); };
-
-  renderProgressBar();
-  renderStory();
-  renderProfile();
-  renderQuests();
-  renderActiveQuests();
-  switchView(state.currentView);
-  checkAchievements('initial');
-  scheduleSave('postInit');
-
-  window.addEventListener('keydown', e=>{
-    if(e.key==='Escape'){
-      if(state.currentView==='chronicle') switchView('main');
-      else closeMentorOverlay();
-    }
-  });
 }
 if(document.readyState==='loading'){
   document.addEventListener('DOMContentLoaded', init);
 } else {
   init();
 }
-
 window.addEventListener('beforeunload', ()=>{ try{ saveState('beforeUnload'); }catch(_){ } });
 
 /* ---------- DEBUG HELPERS ---------- */
