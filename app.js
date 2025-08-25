@@ -1,13 +1,15 @@
-/* Eryndors Lys – app.js
-   Separat Krønike "bog"-view + centreret forside
-   v5
+/* Eryndors Lys – app.js (v5.1 centrering / bogjustering)
+   Ændringer i denne version:
+   - Konsol diagnose log
+   - Ingen logik fjernet; kun layout (bog + centrering) håndteret i CSS
 */
 
 import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
 import { archetypes as archetypesFromRegistry, archetypeMap, getArchetypeLore } from './archetypes.js';
 
-/* ---------- KONSTANTER ---------- */
+console.log('KRONIKE_DIAG v5.1 active – app.js loaded');
+
 const SAVE_KEY = 'eryndors_state_v5';
 const SAVE_DEBOUNCE_MS = 400;
 const MAX_QUESTS_ON_TAVLE = 6;
@@ -18,7 +20,7 @@ const BOOK_SECTIONS = ['stats','achievements','completed','lore'];
 const BOOK_PAGE_PAIR = [
   ['stats','achievements'],
   ['completed','lore']
-]; // 2 “opslag” – let udvide senere
+];
 
 const archetypes = archetypesFromRegistry;
 
@@ -88,7 +90,7 @@ function checkAchievements(reason){
     }
   }
   if(newly.length){
-    if(state.currentView==='chronicle') renderBookPages(); // opdater
+    if(state.currentView==='chronicle') renderBookPages();
     scheduleSave(reason||'achievements');
   }
 }
@@ -219,18 +221,18 @@ document.body.innerHTML = `
             </div>
           </div>
           <div class="book-spine"></div>
-          <div class="book-pages">
-            <div class="book-pagination">
-              <button id="book-prev" class="btn mini" title="Forrige">⬅</button>
-              <div class="page-indicator">
-                <span id="book-page-current">1</span>/<span id="book-page-total">2</span>
+            <div class="book-pages">
+              <div class="book-pagination">
+                <button id="book-prev" class="btn mini" title="Forrige">⬅</button>
+                <div class="page-indicator">
+                  <span id="book-page-current">1</span>/<span id="book-page-total">2</span>
+                </div>
+                <button id="book-next" class="btn mini" title="Næste">➡</button>
               </div>
-              <button id="book-next" class="btn mini" title="Næste">➡</button>
+              <div class="book-spread" id="book-spread">
+                <!-- Dynamisk indhold (2 pages) -->
+              </div>
             </div>
-            <div class="book-spread" id="book-spread">
-              <!-- Dynamisk indhold (2 pages) -->
-            </div>
-          </div>
         </div>
       </div>
 
@@ -295,14 +297,14 @@ function renderProfile(){
       <div class="kro-mentors-row">
         ${archetypes.map(a=>{
           const xp=state.archetypeXP[a.id], lv=calcLevel(xp), pr=calcProgress(xp);
-          return `<span class="kro-mentorbox" data-mentor="${a.id}">
-            <span class="kro-mentor-main">${a.icon||''} <b>${a.name}</b></span>
-            <span class="kro-mentor-progressbar">
-              <span class="kro-mentor-emblem">${levelEmblems[lv]||''}</span>
-              <div class="kro-mentor-bar"><div class="kro-mentor-bar-fill" style="width:${Math.round(pr*100)}%"></div></div>
-              <span class="kro-mentor-bar-label">Level ${lv}</span>
-            </span>
-          </span>`;
+            return `<span class="kro-mentorbox" data-mentor="${a.id}">
+              <span class="kro-mentor-main">${a.icon||''} <b>${a.name}</b></span>
+              <span class="kro-mentor-progressbar">
+                <span class="kro-mentor-emblem">${levelEmblems[lv]||''}</span>
+                <div class="kro-mentor-bar"><div class="kro-mentor-bar-fill" style="width:${Math.round(pr*100)}%"></div></div>
+                <span class="kro-mentor-bar-label">Level ${lv}</span>
+              </span>
+            </span>`;
         }).join('')}
       </div>
     </div>`;
@@ -484,7 +486,6 @@ function renderBookPages(){
 
   spread.innerHTML = pair.map(sectionId => renderBookPage(sectionId)).join('');
 
-  // Knaptilstand
   const prev = document.getElementById('book-prev');
   const next = document.getElementById('book-next');
   prev.disabled = state.bookPageIndex===0;
