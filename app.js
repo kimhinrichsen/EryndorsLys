@@ -1,14 +1,15 @@
-/* Eryndors Lys – app.js (v5.1 centrering / bogjustering)
-   Ændringer i denne version:
-   - Konsol diagnose log
-   - Ingen logik fjernet; kun layout (bog + centrering) håndteret i CSS
-*/
+/* Eryndors Lys – app.js (ren version med mentorbilleder) */
 
 import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
-import { archetypes as archetypesFromRegistry, archetypeMap, getArchetypeLore } from './archetypes.js';
+import {
+  archetypes as archetypesFromRegistry,
+  archetypeMap,
+  getArchetypeLore,
+  getArchetypeImagePath
+} from './archetypes.js';
 
-console.log('KRONIKE_DIAG v5.1 active – app.js loaded');
+console.log('KRONIKE_DIAG v5.2 – init');
 
 const SAVE_KEY = 'eryndors_state_v5';
 const SAVE_DEBOUNCE_MS = 400;
@@ -181,7 +182,7 @@ function showLorePopup(entry){
   wrap.querySelector('#dismiss-lore').onclick=close;
 }
 
-/* ---------- DOM SKELETON (2 VIEWS) ---------- */
+/* ---------- DOM SKELETON ---------- */
 document.body.innerHTML = `
   <div id="main-view" class="view">
     <div class="app-shell">
@@ -230,7 +231,6 @@ document.body.innerHTML = `
                 <button id="book-next" class="btn mini" title="Næste">➡</button>
               </div>
               <div class="book-spread" id="book-spread">
-                <!-- Dynamisk indhold (2 pages) -->
               </div>
             </div>
         </div>
@@ -240,7 +240,7 @@ document.body.innerHTML = `
   </div>
 `;
 
-/* ---------- VIEW SWITCH & SCROLL LOCK ---------- */
+/* ---------- VIEW SWITCH ---------- */
 function setBodyScrollLock(view){
   if(view==='chronicle'){
     document.documentElement.classList.add('lock-scroll');
@@ -297,7 +297,9 @@ function renderProfile(){
       <div class="kro-mentors-row">
         ${archetypes.map(a=>{
           const xp=state.archetypeXP[a.id], lv=calcLevel(xp), pr=calcProgress(xp);
-            return `<span class="kro-mentorbox" data-mentor="${a.id}">
+          const img=getArchetypeImagePath(a.id);
+          return `<span class="kro-mentorbox" data-mentor="${a.id}">
+              <img class="kro-mentor-img" src="${img}" alt="${a.name}">
               <span class="kro-mentor-main">${a.icon||''} <b>${a.name}</b></span>
               <span class="kro-mentor-progressbar">
                 <span class="kro-mentor-emblem">${levelEmblems[lv]||''}</span>
@@ -317,8 +319,9 @@ function showMentorOverlay(id){
   const overlay=document.getElementById('mentor-overlay');
   const mentorQuests = state.tavleQuests.concat(state.active).filter(q=>q.archetype===id && !q.completed);
   const xp=state.archetypeXP[id], lv=calcLevel(xp);
+  const imgPath = getArchetypeImagePath(id);
   overlay.innerHTML=`
-    <div class="kro-mentor-overlaybox">
+    <div class="kro-mentor-overlaybox kro-mentor-overlaybox--with-bg" style="--mentor-overlay-bg:url('${imgPath}')">
       <button class="kro-btn kro-close" id="close-mentor-overlay">✖</button>
       <div class="kro-mentor-overlay-header">
         <span class="kro-mentor-overlay-icon">${mentor.icon||''}</span>
@@ -331,11 +334,8 @@ function showMentorOverlay(id){
         <span class="kro-mentor-bar-label">Level ${lv} – XP: ${xp - xpForLevel(lv)} / ${xpRequiredForLevel(lv)}</span>
       </div>
       <hr/>
-      <h3>Achievements</h3><div class="kro-mentor-achievements"><em>Ikke pr. mentor endnu.</em></div>
-      <h3>Badges</h3><div class="kro-mentor-badges"><em>Ingen badges endnu.</em></div>
-      <hr/>
+      <h3>Quests hos ${mentor.name}</h3>
       <div class="kro-mentor-overlay-quests">
-        <h3 style="margin-top:0;">Quests hos ${mentor.name}</h3>
         ${mentorQuests.length===0?'<i>Ingen åbne quests.</i>':
           mentorQuests.map(q=>`
             <div class="kro-questroll">
@@ -347,8 +347,14 @@ function showMentorOverlay(id){
       </div>
     </div>`;
   overlay.style.display='flex';
-  overlay.querySelector('#close-mentor-overlay').onclick=()=>{ overlay.style.display='none'; overlay.innerHTML=''; };
+  document.body.classList.add('lock-scroll');
+  document.getElementById('close-mentor-overlay').onclick=()=>{
+    overlay.style.display='none';
+    document.body.classList.remove('lock-scroll');
+    overlay.innerHTML='';
+  };
 }
+
 function refillTavleQuests(){
   while(state.tavleQuests.length < MAX_QUESTS_ON_TAVLE){
     const n=generateQuestList(1)[0];
@@ -483,7 +489,6 @@ function renderBookPages(){
   document.getElementById('book-page-current').textContent = state.bookPageIndex+1;
 
   const pair = BOOK_PAGE_PAIR[state.bookPageIndex];
-
   spread.innerHTML = pair.map(sectionId => renderBookPage(sectionId)).join('');
 
   const prev = document.getElementById('book-prev');
@@ -732,73 +737,3 @@ window.debugLevelUp = function(id, boost=60){
 window.addEventListener('beforeunload', ()=> {
   try { saveState('beforeUnload'); } catch(_){}
 });
-// Tilføj getArchetypeImagePath i importen:
-import { archetypes as archetypesFromRegistry, archetypeMap, getArchetypeLore, getArchetypeImagePath } from './archetypes.js';
-
-// ... (resten uændret indtil renderProfile) ...
-
-function renderProfile(){
-  const div=document.getElementById('profile');
-  div.innerHTML=`
-    <div class="kro-profilbox">
-      <span class="kro-xp-header">🍺 Stjernelys: <b>${state.xp}</b> 🪙</span>
-    </div>
-    <div class="kro-mentors">
-      <div class="kro-mentors-row">
-        ${archetypes.map(a=>{
-          const xp=state.archetypeXP[a.id], lv=calcLevel(xp), pr=calcProgress(xp);
-          const img = getArchetypeImagePath(a.id);
-          return `<span class="kro-mentorbox" data-mentor="${a.id}">
-              <img class="kro-mentor-img" src="${img}" alt="${a.name}">
-              <span class="kro-mentor-main">${a.icon||''} <b>${a.name}</b></span>
-              <span class="kro-mentor-progressbar">
-                <span class="kro-mentor-emblem">${levelEmblems[lv]||''}</span>
-                <div class="kro-mentor-bar"><div class="kro-mentor-bar-fill" style="width:${Math.round(pr*100)}%"></div></div>
-                <span class="kro-mentor-bar-label">Level ${lv}</span>
-              </span>
-            </span>`;
-        }).join('')}
-      </div>
-    </div>`;
-  div.querySelectorAll('[data-mentor]').forEach(el=> el.onclick=()=>showMentorOverlay(el.getAttribute('data-mentor')));
-}
-
-function showMentorOverlay(id){
-  id=canonicalArchetypeId(id);
-  const mentor=archetypes.find(a=>a.id===id);
-  if(!mentor) return;
-  const overlay=document.getElementById('mentor-overlay');
-  const mentorQuests = state.tavleQuests.concat(state.active).filter(q=>q.archetype===id && !q.completed);
-  const xp=state.archetypeXP[id], lv=calcLevel(xp);
-  const img = getArchetypeImagePath(id);
-  overlay.innerHTML=`
-    <div class="kro-mentor-overlaybox kro-mentor-overlaybox--with-bg">
-      <button class="kro-btn kro-close" id="close-mentor-overlay">✖</button>
-      <div class="kro-mentor-overlay-header">
-        <span class="kro-mentor-overlay-icon">${mentor.icon||''}</span>
-        <span class="kro-mentor-overlay-title">${mentor.name}</span>
-      </div>
-      <div class="kro-mentor-overlay-spacer"></div>
-      <p class="kro-mentor-background">${mentor.description||''}</p>
-      <div class="kro-mentor-overlay-progressbar">
-        <span class="kro-mentor-bar-label">Level ${lv}</span>
-        <div class="kro-mentor-bar"><div class="kro-mentor-bar-fill" style="width:${Math.round(calcProgress(xp)*100)}%"></div></div>
-      </div>
-      <h3 class="kro-mentor-subhead">Aktive / Tavle-Quests</h3>
-      <div class="kro-mentor-quests">
-        ${mentorQuests.length? mentorQuests.map(q=>`<div class="kro-mentor-q">
-            <b>${q.name}</b><br><span>${q.desc||''}</span>
-          </div>`).join('') : '<em>Ingen aktive quests for denne arketype.</em>'}
-      </div>
-    </div>`;
-  const box = overlay.querySelector('.kro-mentor-overlaybox');
-  if(img){
-    box.style.setProperty('--mentor-overlay-bg', `url("${img}")`);
-  }
-  overlay.style.display='flex';
-  document.body.classList.add('lock-scroll');
-  document.getElementById('close-mentor-overlay').onclick=()=>{
-    overlay.style.display='none';
-    document.body.classList.remove('lock-scroll');
-  };
-}
