@@ -1,26 +1,30 @@
-// Central registry over arketyper – uden at ændre de oprindelige filer.
+// Central registry over arketyper – baseret på dine eksisterende enkeltfiler.
+// Vi tilfører kun et 'id' her. Ingen ændring i de originale eksport-objekter.
 import { skyggeskriveren } from './skyggeskriveren.js';
 import { horisontlober } from './horisontlober.js';
 import { taagevogter } from './taagevogter.js';
 import { sagnsmed } from './sagnsmed.js';
 import { tradmester } from './tradmester.js';
 
-// Vi tilføjer kun id her, så de passer til de id'er du allerede brugte i app.js
-// (bevarer diakritik for konsistens med quests: horisontløber, tågevogter, trådmester)
+// Bevarer dine “visuelle” navne (med ø/å) i id'erne da dine quests sandsynligvis refererer sådan.
+// Hvis du senere vil normalisere til ASCII, gør vi det samlet ét sted.
 export const archetypes = [
   { id: 'skyggeskriver', ...skyggeskriveren },
   { id: 'horisontløber', ...horisontlober },
   { id: 'tågevogter', ...taagevogter },
   { id: 'sagnsmed', ...sagnsmed },
   { id: 'trådmester', ...tradmester }
+  // 'nattesøger' mangler, fordi der endnu ikke findes en fil – tilføjes senere.
 ];
 
 export const archetypeMap = Object.fromEntries(archetypes.map(a => [a.id, a]));
 
-// Valgfri hjælper – ikke påkrævet af app.js endnu
 export function getArchetypeLore(id, level) {
   const a = archetypeMap[id];
   if (!a) return null;
-  if (level == null) return a.levels?.[0] || null;
+  if (level == null) {
+    // Finder level 1 lore som standard
+    return a.levels?.find(l => l.level === 1) || null;
+  }
   return a.levels?.find(l => l.level === level) || null;
 }
