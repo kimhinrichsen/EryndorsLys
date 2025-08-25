@@ -2,7 +2,7 @@ import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
 import { archetypes as archetypesFromRegistry, archetypeMap } from './archetypes.js';
 
-// ORIGINAL liste (bevaret som reference – bruges ikke i logikken mere)
+// Reference (ubrugt) – beholdt
 const archetypesOriginal = [
   { id: "skyggeskriver", name: "Skyggeskriver", icon: "🧙‍♂️" },
   { id: "horisontløber", name: "Horisontløber", icon: "🏇" },
@@ -12,7 +12,7 @@ const archetypesOriginal = [
   { id: "trådmester", name: "Trådmester", icon: "🤹‍♂️" }
 ];
 
-// AKTUEL liste (med lore)
+// Aktuelle (med lore)
 const archetypes = archetypesFromRegistry;
 
 const levelEmblems = {
@@ -70,6 +70,21 @@ const state = {
   tavleQuests: generateQuestList(MAX_QUESTS_ON_TAVLE)
 };
 
+// Eksponér lidt debug
+window.state = state;
+window.debugLevelUp = function (id, xpBoost = 60) {
+  if (!(id in state.archetypeXP)) {
+    console.warn("Ukendt arketype:", id);
+    return;
+  }
+  const before = calcLevel(state.archetypeXP[id]);
+  state.archetypeXP[id] += xpBoost;
+  const after = calcLevel(state.archetypeXP[id]);
+  state.archetypeLevel[id] = after;
+  if (after > before) notifyLevelUp(id, after);
+  renderProfile();
+};
+
 // DOM skeleton
 document.body.innerHTML = `
   <div id="overlay">
@@ -123,7 +138,7 @@ function renderProfile() {
         ${archetypes.map(a => {
           const xp = state.archetypeXP[a.id];
           const level = calcLevel(xp);
-            const progress = calcProgress(xp);
+          const progress = calcProgress(xp);
           return `
             <span class="kro-mentorbox" data-mentor="${a.id}">
               <span class="kro-mentor-main">
@@ -143,7 +158,7 @@ function renderProfile() {
     </div>
   `;
 
-  Array.from(div.querySelectorAll("[data-mentor]")).forEach(el => {
+  div.querySelectorAll("[data-mentor]").forEach(el => {
     el.onclick = () => showMentorOverlay(el.getAttribute("data-mentor"));
   });
 }
@@ -199,21 +214,44 @@ function showMentorOverlay(mentorId) {
   };
 }
 
-// Level-up toast
+// Level-up popup (uafhængig af CSS-fil)
 function notifyLevelUp(archetypeId, newLevel) {
   const a = archetypeMap[archetypeId];
   if (!a) return;
+  console.log("[LEVEL UP]", archetypeId, "->", newLevel);
   const lore = a.levels?.find(l => l.level === newLevel);
   const box = document.createElement('div');
-  box.className = 'kro-levelup-toast';
   box.innerHTML = `
-    <strong>${a.name} – Level ${newLevel}!</strong><br/>
-    ${lore ? lore.majorLore : '<em>Ingen lore for dette level endnu.</em>'}
+    <div style="
+      position:fixed;
+      bottom:1rem;
+      right:1rem;
+      background:#222;
+      color:#eee;
+      padding:14px 16px;
+      border:1px solid #555;
+      border-radius:8px;
+      max-width:360px;
+      font:14px/1.35 system-ui, Arial, sans-serif;
+      box-shadow:0 4px 14px rgba(0,0,0,0.45);
+      z-index:9999;
+      opacity:0;
+      transform:translateY(8px);
+      transition:opacity .35s, transform .35s;
+    ">
+      <strong style="font-size:15px;">${a.name} – Level ${newLevel}!</strong><br/>
+      ${lore ? lore.majorLore : '<em>Ingen lore for dette level endnu.</em>'}
+    </div>
   `;
+  const inner = box.firstElementChild;
   document.body.appendChild(box);
-  requestAnimationFrame(() => box.classList.add('show'));
+  requestAnimationFrame(() => {
+    inner.style.opacity = '1';
+    inner.style.transform = 'translateY(0)';
+  });
   setTimeout(() => {
-    box.classList.remove('show');
+    inner.style.opacity = '0';
+    inner.style.transform = 'translateY(8px)';
     setTimeout(() => box.remove(), 400);
   }, 4500);
 }
@@ -316,24 +354,32 @@ function renderActiveQuests() {
       const idx = state.active.findIndex(q => q.id === qid);
       if (idx >= 0) {
         const quest = state.active[idx];
-        if (quest.type === "instant" || quest.completed) {
-          state.completed.push(quest);
-          state.xp += quest.xp;
-          const aId = quest.archetype;
-          if (aId && state.archetypeXP[aId] != null) {
-            const before = calcLevel(state.archetypeXP[aId]);
-            state.archetypeXP[aId] += quest.xp;
-            const after = calcLevel(state.archetypeXP[aId]);
-            state.archetypeLevel[aId] = after;
-            if (after > before) notifyLevelUp(aId, after);
-          }
-          state.active.splice(idx, 1);
-          renderProgressBar();
-          renderStory();
-          renderProfile();
-          renderQuests();
-          renderActiveQuests();
+        // Kan den gennemføres?
+        const goalOk = quest.type !== 'progress'
+          || quest.completed
+          || (quest.vars && quest.goal && quest.progress >= quest.vars[quest.goal]);
+        if (!goalOk) {
+          return; // Ignorer klik hvis ikke færdig
         }
+        state.completed.push(quest);
+        state.xp += quest.xp;
+
+        const aId = quest.archetype;
+        if (aId && state.archetypeXP[aId] != null) {
+          const before = calcLevel(state.archetypeXP[aId]);
+            state.archetypeXP[aId] += quest.xp;
+          const after = calcLevel(state.archetypeXP[aId]);
+          state.archetypeLevel[aId] = after;
+          if (after > before) notifyLevelUp(aId, after);
+        } else if (aId) {
+          console.warn("Quest archetype ikke i registry:", aId);
+        }
+        state.active.splice(idx, 1);
+        renderProgressBar();
+        renderStory();
+        renderProfile();
+        renderQuests();
+        renderActiveQuests();
       }
     };
   });
@@ -356,6 +402,10 @@ function renderActiveQuests() {
       const quest = state.active.find(q => q.id === qid);
       if (quest) {
         updateQuestProgress(quest, 1);
+        // Hvis progress når mål, sæt completed for synlig gennemførsel
+        if (quest.vars && quest.goal && quest.progress >= quest.vars[quest.goal]) {
+          quest.completed = true;
+        }
         renderActiveQuests();
       }
     };
