@@ -584,3 +584,121 @@ html,body {
   .kro-profilbox,.kro-xp-bar-container,.kro-storybox,.kro-quests { max-width:100%; }
   #chronicle-launcher { width:74px;height:74px; }
 }
+/* ========= GLOBAL CENTERING OVERRIDES (ingen sletning, kun tilføjelse) ========= */
+:root {
+  --col-width: 760px;          /* Juster samlet kolonnebredde her */
+  --col-narrow: 360px;
+}
+
+/* 1. Gør main-view og chronicle-view til flex-vertikale containere der centrerer indhold */
+#main-view, #chronicle-view {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  /* ingen justify-content så vi beholder normal top-flow */
+}
+
+/* 2. Alle center-block sektioners direkte indhold holdes inden for kolonne */
+.center-block > * {
+  max-width: var(--col-width);
+  width:100%;
+  margin-left:auto;
+  margin-right:auto;
+  box-sizing:border-box;
+}
+
+/* 3. Specifikke kro-bokse forsikres også (hvis de tilfældigt ligger udenfor pattern) */
+.kro-xp-bar-container,
+.kro-storybox,
+.kro-profilbox,
+.kro-quests,
+.kro-questheader,
+#quests .kro-quests,
+#activequests .kro-quests {
+  max-width: var(--col-width);
+  margin-left:auto;
+  margin-right:auto;
+}
+
+/* 4. Quests-listernes børn skal ikke sprede layoutet – men behold 100% inde i kolonne */
+.kro-quests > .kro-questroll {
+  width:100%;
+  box-sizing:border-box;
+}
+
+/* 5. Mentor overlay ændres IKKE – men dens indre boks centreres allerede (ingen ændring nødvendig) */
+
+/* 6. Launcher er allerede centreret (left:50% + translateX(-50%)) – vi bekræfter kun */
+#chronicle-launcher {
+  left:50%;
+  transform:translateX(-50%);
+}
+
+/* 7. Bogens wrapper centrerer hele bogen som kompakt element */
+.book-wrapper,
+.book-outer {
+  width:100%;
+  display:flex !important;
+  justify-content:center !important;
+  align-items:flex-start;
+  box-sizing:border-box;
+  padding:1rem 0 2.5rem;
+}
+
+/* 8. Selve .book skal ikke “udfylde” – men være intrinsic */
+.book {
+  width:auto !important;
+  max-width:100%;
+  display:inline-flex !important;
+  align-items:stretch;
+}
+
+/* 9. Fjern “stretch” fra pages så de ikke sluger resterende vandret plads */
+.book-pages {
+  flex:0 0 auto !important;
+}
+
+/* 10. Bogspread centreres og har eksplicit max-width svarende til 2 sider + gap */
+.book-spread {
+  justify-content:center !important;
+  margin-left:auto !important;
+  margin-right:auto !important;
+}
+
+/* 11. Sider låses til smal bredde (hvis ikke allerede) og centreres individuelt */
+.book-page {
+  width:var(--col-narrow) !important;
+  margin-left:auto;
+  margin-right:auto;
+}
+
+/* 12. Sørg for at stats / achievements kort ikke sprænger layout – wrap og centrér */
+.stats-grid,
+.ach-grid {
+  justify-content:flex-start;
+  gap:.65rem;
+}
+
+/* 13. Global fallback – enhver .kro-*-box der ikke er eksplicit håndteret centreres */
+[class*="kro-"] {
+  /* Ingen width tvang – men hvis den har en max-width defineret højere op, får den auto margin */
+  margin-left: var(--kro-auto-margin, auto);
+  margin-right: var(--kro-auto-margin, auto);
+}
+
+/* 14. Små skærme: kolonnebredden bliver automatisk 100% */
+@media (max-width: 820px){
+  :root { --col-width: 100%; }
+  .book-spread {
+    grid-template-columns:repeat(1, minmax(300px, var(--col-narrow))) !important;
+    max-width:var(--col-narrow);
+  }
+  .book-spread::before { display:none; }
+}
+
+/* 15. Debug outline (valgfrit). Fjern kommentar // for at se bokse visuelt */
+/*
+.center-block > * { outline:1px dashed rgba(255,255,255,.15); }
+.book { outline:1px solid magenta; }
+.book-pages { outline:1px solid cyan; }
+*/
