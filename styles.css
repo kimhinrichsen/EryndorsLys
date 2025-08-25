@@ -539,3 +539,39 @@ body {
   line-height:1.1rem;
   box-shadow:0 0 6px #0007;
 }
+/* === Mentor single-line kompakt tweak === */
+@media (min-width: 860px) {
+  .kro-mentors-row {
+    flex-wrap: nowrap;
+    gap: 12px;
+    justify-content: center;
+  }
+  .kro-mentorbox {
+    flex: 0 1 165px;
+    min-width: 165px;
+    max-width: 170px;
+    padding: 10px 8px 10px 8px;
+    margin-bottom: 0;
+  }
+  .kro-mentor-img {
+    width: 60px;
+    height: 60px;
+    margin-bottom: 6px;
+  }
+  .kro-mentor-main {
+    font-size: .85rem;
+    margin-bottom: 4px;
+  }
+  .kro-mentor-progressbar {
+    transform: scale(.95);
+    transform-origin: top center;
+  }
+  .kro-mentor-bar {
+    height: 6px;
+  }
+  .kro-mentor-emblem {
+    font-size: .85rem;
+  }
+}
+
+/* (Valgfrit) Hvis noget stadig får den til at wrappe, tilføj !important på flex-wrap og min-width. */
