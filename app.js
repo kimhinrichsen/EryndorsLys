@@ -1,10 +1,8 @@
-/* Eryndors Lys – app.js v7.3
-   Ændringer fra v7.2:
-   - Mentor (arketype) overlay viser IKKE længere aktive quests
-   - Overlay indeholder nu kun: Info (baggrund + beskrivelse + progress), Achievements relateret til arketypen og Items
-   - Ensartet, fast layout-størrelse på mentor overlay for at undgå “hop” / dynamisk højde
-   - Mentor-kort (kro-mentorbox) får fast højde så alle er samme størrelse uanset navn/billede
-   - Oprydning af kode der tidligere håndterede quest-listen i overlay
+/* Eryndors Lys – app.js (opdateret til Quest Generator v3)
+   Fokus:
+   - Bruger ny questgenerator med playerLevel + archetypeLevels
+   - progress quests begrænses automatisk af generatoren
+   - Mentorer overlay uden aktive quests (info, achievements, items)
 */
 
 import { storyChapters } from './story.js';
@@ -17,8 +15,8 @@ import {
 } from './archetypes.js';
 
 /* ---------- KONSTANTER ---------- */
-const SAVE_KEY = 'eryndors_state_v7';
-const SAVE_VERSION = 7; // stadig samme datamodel
+const SAVE_KEY = 'eryndors_state_v8';
+const SAVE_VERSION = 8;
 const SAVE_DEBOUNCE_MS = 400;
 const MAX_QUESTS_ON_TAVLE = 6;
 const XP_BASE = 50;
@@ -44,7 +42,8 @@ function calcProgress(x, max=100){
   const L=calcLevel(x,max), b=xpForLevel(L), n=xpForLevel(L+1);
   return Math.min((x-b)/(n-b),1);
 }
-function getCurrentStoryChapter(){ return calcLevel(state.xp)-1; }
+function getPlayerLevel(){ return calcLevel(state.xp); }
+function getCurrentStoryChapter(){ return getPlayerLevel()-1; }
 
 /* ---------- CANONICAL ID ---------- */
 const _canonIdx = (() => {
@@ -72,14 +71,14 @@ const state = {
   currentView: 'main',
   xp: 0,
   archetypeXP: Object.fromEntries(archetypes.map(a=>[a.id,0])),
+  archetypeLevel: Object.fromEntries(archetypes.map(a=>[a.id,1])),
   active: [],
   completed: [],
-  tavleQuests: generateQuestList(MAX_QUESTS_ON_TAVLE),
+  tavleQuests: [],
   chronicleLore: [],
   achievementsUnlocked: new Set(),
   bookPageIndex: 0,
-  minorLoreProgress: {},
-  archetypeLevel: Object.fromEntries(archetypes.map(a=>[a.id,1]))
+  minorLoreProgress: {}
 };
 
 /* ---------- ACHIEVEMENTS ---------- */
@@ -94,7 +93,6 @@ const achievementDefs = [
   }))
 ];
 
-// Hjælper til at udlede achievements for en specifik arketype
 function achievementsForArchetype(aId){
   return achievementDefs.filter(a=>a.archetype === aId);
 }
@@ -160,6 +158,63 @@ function unlockMajorLore(archetypeId, level){
     });
   }
 }
+function showMajorLorePopup(archetypeId, level){
+  if(LORE_CONFIG.major.mode!=='popup') return;
+  const lore=getArchetypeLore(archetypeId, level);
+  if(!lore) return;
+  queuePopup({
+    title:`${archetypeMap[archetypeId]?.name || archetypeId} – Level ${level}`,
+    archetypeId,
+    variant:'lore-popup--major',
+    bodyHtml:`<p class="lp-major">${lore.majorLore}</p>`
+  });
+}
+function showMinorLorePopup(archetypeId, level, line){
+  if(LORE_CONFIG.minor.mode!=='popup') return;
+  queuePopup({
+    title:`${archetypeMap[archetypeId]?.name || archetypeId} – Fragment (Lvl ${level})`,
+    archetypeId,
+    variant:'lore-popup--minor',
+    bodyHtml:`<p class="lp-minor-frag">${line}</p>`
+  });
+}
+function maybeUnlockMinorLore(archetypeId){
+  const xp=state.archetypeXP[archetypeId];
+  const level=calcLevel(xp);
+  const lore=getArchetypeLore(archetypeId, level);
+  if(!lore || !Array.isArray(lore.minorLore) || !lore.minorLore.length) return;
+  const n=lore.minorLore.length;
+  const shown=getMinorShownCount(archetypeId, level);
+  if(shown>=n) return;
+  const progress=calcProgress(xp);
+  for(let i=shown+1;i<=n;i++){
+    const threshold=i/(n+1);
+    if(progress>=threshold){
+      setMinorShownCount(archetypeId, level, i);
+      scheduleSave('minorLoreUnlock');
+      showMinorLorePopup(archetypeId, level, lore.minorLore[i-1]);
+    } else break;
+  }
+}
+function handleLevelUpLore(archetypeId, beforeLevel, afterLevel){
+  for(let L=beforeLevel+1; L<=afterLevel; L++){
+    unlockMajorLore(archetypeId, L);
+    setMinorShownCount(archetypeId, L, 0);
+    if(state.currentView==='main') showMajorLorePopup(archetypeId, L);
+  }
+}
+function backfillMajorLore(){
+  archetypes.forEach(a=>{
+    const xp=state.archetypeXP[a.id];
+    const lvl=calcLevel(xp);
+    for(let L=2; L<=lvl; L++){
+      const key=`${a.id}_${L}`;
+      if(!state.chronicleLore.some(e=>e.id===key)){
+        unlockMajorLore(a.id, L);
+      }
+    }
+  });
+}
 
 /* ---------- POPUP KØ ---------- */
 const popupQueue = [];
@@ -219,66 +274,7 @@ function queuePopup({title, archetypeId, bodyHtml, variant}){
   });
 }
 
-/* ---------- LORE EVENTS ---------- */
-function showMajorLorePopup(archetypeId, level){
-  if(LORE_CONFIG.major.mode!=='popup') return;
-  const lore=getArchetypeLore(archetypeId, level);
-  if(!lore) return;
-  queuePopup({
-    title:`${archetypeMap[archetypeId]?.name || archetypeId} – Level ${level}`,
-    archetypeId,
-    variant:'lore-popup--major',
-    bodyHtml:`<p class="lp-major">${lore.majorLore}</p>`
-  });
-}
-function showMinorLorePopup(archetypeId, level, line){
-  if(LORE_CONFIG.minor.mode!=='popup') return;
-  queuePopup({
-    title:`${archetypeMap[archetypeId]?.name || archetypeId} – Fragment (Lvl ${level})`,
-    archetypeId,
-    variant:'lore-popup--minor',
-    bodyHtml:`<p class="lp-minor-frag">${line}</p>`
-  });
-}
-function maybeUnlockMinorLore(archetypeId){
-  const xp=state.archetypeXP[archetypeId];
-  const level=calcLevel(xp);
-  const lore=getArchetypeLore(archetypeId, level);
-  if(!lore || !Array.isArray(lore.minorLore) || !lore.minorLore.length) return;
-  const n=lore.minorLore.length;
-  const shown=getMinorShownCount(archetypeId, level);
-  if(shown>=n) return;
-  const progress=calcProgress(xp);
-  for(let i=shown+1;i<=n;i++){
-    const threshold=i/(n+1);
-    if(progress>=threshold){
-      setMinorShownCount(archetypeId, level, i);
-      scheduleSave('minorLoreUnlock');
-      showMinorLorePopup(archetypeId, level, lore.minorLore[i-1]);
-    } else break;
-  }
-}
-function handleLevelUpLore(archetypeId, beforeLevel, afterLevel){
-  for(let L=beforeLevel+1; L<=afterLevel; L++){
-    unlockMajorLore(archetypeId, L);
-    setMinorShownCount(archetypeId, L, 0);
-    if(state.currentView==='main') showMajorLorePopup(archetypeId, L);
-  }
-}
-function backfillMajorLore(){
-  archetypes.forEach(a=>{
-    const xp=state.archetypeXP[a.id];
-    const lvl=calcLevel(xp);
-    for(let L=2; L<=lvl; L++){
-      const key=`${a.id}_${L}`;
-      if(!state.chronicleLore.some(e=>e.id===key)){
-        unlockMajorLore(a.id, L);
-      }
-    }
-  });
-}
-
-/* ---------- DOM / RENDER HELPERS ---------- */
+/* ---------- DOM MARKUP ---------- */
 const rootId='app';
 function root(){ return document.getElementById(rootId); }
 function buildStaticMarkup(){
@@ -357,7 +353,7 @@ function switchView(view){
 
 /* ---------- RENDERING ---------- */
 function renderProgressBar(){
-  const L=calcLevel(state.xp), p=calcProgress(state.xp);
+  const L=getPlayerLevel(), p=calcProgress(state.xp);
   const el=document.getElementById('progressbar'); if(!el) return;
   el.innerHTML=`
     <div class="kro-xp-bar-container">
@@ -403,7 +399,19 @@ function renderProfile(){
   });
 }
 
-// Ny: Mentor overlay uden quests, men med achievements og items
+function rarityBadge(r){
+  if(!r || r==='legacy') return '';
+  const map={
+    common:{c:'#d8d0c0',bg:'#3b352c'},
+    uncommon:{c:'#b6e8c7',bg:'#22402b'},
+    rare:{c:'#c3d9f7',bg:'#1e2f49'},
+    epic:{c:'#f8d28a',bg:'#4a3614'}
+  };
+  const m=map[r]||map.common;
+  return `<span class="quest-rarity quest-rarity--${r}" style="color:${m.c};background:${m.bg};">${r}</span>`;
+}
+
+/* ---------- MENTOR OVERLAY (ingen aktive quests) ---------- */
 function showMentorOverlay(id){
   id=canonicalArchetypeId(id);
   const mentor=archetypes.find(a=>a.id===id);
@@ -413,7 +421,7 @@ function showMentorOverlay(id){
   const xp=state.archetypeXP[id];
   const lv=calcLevel(xp);
   const archAchievements = achievementsForArchetype(id);
-  const items = mentor.items || mentor.itemList || []; // fleksibel fallback
+  const items = mentor.items || mentor.itemList || [];
 
   const achievementHtml = archAchievements.length
     ? `<div class="mentor-subsection">
@@ -428,8 +436,7 @@ function showMentorOverlay(id){
                       </div>`;
             }).join('')}
          </div>
-       </div>`
-    : `<div class="mentor-subsection"><h4 class="mentor-subtitle">Achievements</h4><em>Ingen specifikke achievements.</em></div>`;
+       </div>` : '';
 
   const itemsHtml = items.length
     ? `<div class="mentor-subsection">
@@ -443,8 +450,7 @@ function showMentorOverlay(id){
               return '<li>Ukendt</li>';
             }).join('')}
          </ul>
-       </div>`
-    : `<div class="mentor-subsection"><h4 class="mentor-subtitle">Items</h4><em>Ingen items (endnu).</em></div>`;
+       </div>` : '';
 
   overlay.innerHTML=`
     <div class="kro-mentor-overlaybox kro-mentor-overlaybox--with-bg mentor-overlay-fixed" style="--mentor-overlay-bg:url('${getArchetypeImagePath(id)}')">
@@ -463,8 +469,8 @@ function showMentorOverlay(id){
           </div>
         </div>
         <div class="mentor-col mentor-col--lists">
-          ${achievementHtml}
-          ${itemsHtml}
+          ${achievementHtml || '<div class="mentor-subsection"><h4 class="mentor-subtitle">Achievements</h4><em>Ingen specifikke achievements.</em></div>'}
+          ${itemsHtml || '<div class="mentor-subsection"><h4 class="mentor-subtitle">Items</h4><em>Ingen items (endnu).</em></div>'}
         </div>
       </div>
     </div>`;
@@ -474,7 +480,6 @@ function showMentorOverlay(id){
   if(closeBtn) closeBtn.onclick=closeMentorOverlay;
   overlay.addEventListener('mousedown', e=>{ if(e.target===overlay) closeMentorOverlay(); });
 }
-
 function closeMentorOverlay(){
   const overlay=document.getElementById('mentor-overlay');
   if(overlay){ overlay.style.display='none'; overlay.innerHTML=''; }
@@ -482,12 +487,19 @@ function closeMentorOverlay(){
   document.documentElement.classList.remove('lock-scroll');
 }
 
+/* ---------- QUESTS ---------- */
 function refillTavleQuests(){
   while(state.tavleQuests.length < MAX_QUESTS_ON_TAVLE){
-    const n=generateQuestList(1)[0];
+    const n=generateQuestList(1,{
+      playerLevel: getPlayerLevel(),
+      archetypeLevels: state.archetypeLevel,
+      currentProgressCount: state.active.filter(q=>q.type==='progress').length
+    })[0];
     if(n){
       n.archetype=canonicalArchetypeId(n.archetype);
       state.tavleQuests.push(n);
+    } else {
+      break;
     }
   }
 }
@@ -505,9 +517,12 @@ function renderQuests(){
     el.className='kro-questroll';
     el.innerHTML=`
       <span class="kro-questicon">${q.icon||''}</span>
-      <b>${q.name}</b>
+      <div class="quest-topline">
+        <b>${q.name}</b>
+        ${rarityBadge(q.rarity)}
+      </div>
       <div class="kro-questdesc">${q.desc}</div>
-      <div class="kro-questpts">XP: <b>${q.xp}</b> | Niveau: ${q.level} ${levelEmblems[q.level]||''}</div>
+      <div class="kro-questpts">XP: <b>${q.xp}</b> | Type: ${q.type==='progress'?'⏳ progress':'⚡ instant'}</div>
       ${progressHtml}
       <button class="kro-btn" data-accept="${q.id}">Acceptér quest</button>`;
     wrap.appendChild(el);
@@ -544,9 +559,12 @@ function renderActiveQuests(){
     el.className='kro-questroll';
     el.innerHTML=`
       <span class="kro-questicon">${q.icon||''}</span>
-      <b>${q.name}</b>
+      <div class="quest-topline">
+        <b>${q.name}</b>
+        ${rarityBadge(q.rarity)}
+      </div>
       <div class="kro-questdesc">${q.desc}</div>
-      <div class="kro-questpts">XP: <b>${q.xp}</b> | Niveau: ${q.level} ${levelEmblems[q.level]||''}</div>
+      <div class="kro-questpts">XP: <b>${q.xp}</b> | Type: ${q.type==='progress'?'⏳ progress':'⚡ instant'}</div>
       ${progressHtml}
       <div class="kro-quest-actions">
         <button class="kro-btn" data-complete="${q.id}">Gennemfør</button>
@@ -562,17 +580,18 @@ function renderActiveQuests(){
         const quest=state.active[idx];
         const goalOk = quest.type!=='progress'
           || quest.completed
-          || (quest.vars && quest.goal && quest.progress >= quest.vars[quest.goal]);
+          || (quest.goal && quest.vars && quest.progress >= quest.vars[quest.goal]);
         if(!goalOk) return;
         state.completed.push({
           id:quest.id, name:quest.name, archetype:quest.archetype,
-          xp:quest.xp, type:quest.type, levelRequirement:quest.level, completedAt:Date.now()
+            xp:quest.xp, type:quest.type, levelRequirement:quest.level, completedAt:Date.now(),
+            rarity:quest.rarity||''
         });
         state.xp += quest.xp;
         const aId=canonicalArchetypeId(quest.archetype);
         if(aId && state.archetypeXP[aId]!=null){
           const before=calcLevel(state.archetypeXP[aId]);
-          state.archetypeXP[aId]+=quest.xp;
+            state.archetypeXP[aId]+=quest.xp;
           const after=calcLevel(state.archetypeXP[aId]);
           if(after>before){
             handleLevelUpLore(aId, before, after);
@@ -604,7 +623,7 @@ function renderActiveQuests(){
       const quest=state.active.find(q=>q.id===id);
       if(quest){
         updateQuestProgress(quest,1);
-        if(quest.vars && quest.goal && quest.progress>=quest.vars[quest.goal]) quest.completed=true;
+        if(quest.goal && quest.vars && quest.progress>=quest.vars[quest.goal]) quest.completed=true;
         renderActiveQuests(); scheduleSave('progressActiveQuest');
       }
     };
@@ -698,14 +717,14 @@ function renderCompletedPage(){
     <h3>Gennemførte Quests</h3>
     <div class="qtable-wrap">
       <table class="qtable">
-        <thead><tr><th>Navn</th><th>Arketype</th><th>XP</th><th>Req lvl</th><th>Type</th><th>Tid</th></tr></thead>
+        <thead><tr><th>Navn</th><th>Arketype</th><th>XP</th><th>Rarity</th><th>Type</th><th>Tid</th></tr></thead>
         <tbody>
           ${list.map(q=>`
             <tr>
               <td>${q.name}</td>
               <td>${archetypeMap[q.archetype]?.name||q.archetype||''}</td>
               <td class="num">${q.xp}</td>
-              <td class="num">${q.levelRequirement ?? ''}</td>
+              <td>${q.rarity||''}</td>
               <td>${q.type||''}</td>
               <td>${new Date(q.completedAt).toLocaleString()}</td>
             </tr>`).join('')}
@@ -762,6 +781,7 @@ function serialize(){
     currentView: state.currentView,
     xp: state.xp,
     archetypeXP: state.archetypeXP,
+    archetypeLevel: state.archetypeLevel,
     active: state.active,
     completed: state.completed,
     tavleQuests: state.tavleQuests,
@@ -775,28 +795,27 @@ function saveState(){
   try{ localStorage.setItem(SAVE_KEY, JSON.stringify(serialize())); }
   catch(e){ console.warn('Save fejl', e); }
 }
-function migrateOlderKeys(){
-  const oldKeys=['eryndors_state_v6','eryndors_state_v5','eryndors_state_v4','eryndors_state_v3','eryndors_state_v2','eryndors_state_v1'];
+function migrateOlder(){
+  const oldKeys=['eryndors_state_v7','eryndors_state_v6','eryndors_state_v5','eryndors_state_v4','eryndors_state_v3','eryndors_state_v2','eryndors_state_v1'];
   for(const k of oldKeys){
     const raw=localStorage.getItem(k);
     if(!raw) continue;
     try{
       const d=JSON.parse(raw);
-      if(!d) continue;
-      console.log('[MIGRATION] Importerer', k);
       if(typeof d.xp==='number') state.xp=d.xp;
       if(d.archetypeXP){
         for(const aId in d.archetypeXP){
           const can=canonicalArchetypeId(aId);
-            if(state.archetypeXP[can]!=null) state.archetypeXP[can]=d.archetypeXP[aId];
+          if(state.archetypeXP[can]!=null) state.archetypeXP[can]=d.archetypeXP[aId];
         }
       }
-      if(Array.isArray(d.active)) state.active=d.active.map(q=>{ if(q?.archetype) q.archetype=canonicalArchetypeId(q.archetype); return q; });
-      if(Array.isArray(d.completed)) state.completed=d.completed.map(q=>{ if(q?.archetype) q.archetype=canonicalArchetypeId(q.archetype); return q; });
-      if(Array.isArray(d.tavleQuests)) state.tavleQuests=d.tavleQuests.map(q=>{ if(q?.archetype) q.archetype=canonicalArchetypeId(q.archetype); return q; });
-      if(Array.isArray(d.chronicleLore)) state.chronicleLore=d.chronicleLore.map(e=>{ if(e?.archetypeId) e.archetypeId=canonicalArchetypeId(e.archetypeId); return e; });
+      if(Array.isArray(d.active)) state.active=d.active;
+      if(Array.isArray(d.completed)) state.completed=d.completed;
+      if(Array.isArray(d.tavleQuests)) state.tavleQuests=d.tavleQuests;
+      if(Array.isArray(d.chronicleLore)) state.chronicleLore=d.chronicleLore;
       if(Array.isArray(d.achievementsUnlocked)) state.achievementsUnlocked=new Set(d.achievementsUnlocked);
       if(typeof d.bookPageIndex==='number') state.bookPageIndex=d.bookPageIndex;
+      if(d.minorLoreProgress) state.minorLoreProgress=d.minorLoreProgress;
       return true;
     }catch(e){ console.warn('Migration fejl', k, e); }
   }
@@ -811,6 +830,7 @@ function loadState(){
         state.currentView=data.currentView||'main';
         state.xp=data.xp ?? state.xp;
         Object.assign(state.archetypeXP, data.archetypeXP||{});
+        Object.assign(state.archetypeLevel, data.archetypeLevel||{});
         if(Array.isArray(data.active)) state.active=data.active;
         if(Array.isArray(data.completed)) state.completed=data.completed;
         if(Array.isArray(data.tavleQuests)) state.tavleQuests=data.tavleQuests;
@@ -819,10 +839,10 @@ function loadState(){
         if(typeof data.bookPageIndex==='number') state.bookPageIndex=data.bookPageIndex;
         if(data.minorLoreProgress) state.minorLoreProgress=data.minorLoreProgress;
       } else {
-        migrateOlderKeys();
+        migrateOlder();
       }
     } else {
-      migrateOlderKeys();
+      migrateOlder();
     }
     [...state.active, ...state.tavleQuests, ...state.completed].forEach(q=>{
       if(q?.archetype) q.archetype=canonicalArchetypeId(q.archetype);
@@ -857,6 +877,15 @@ function quickSaveToast(){
 function init(){
   buildStaticMarkup();
   loadState();
+
+  // Initial tavle hvis tom (brug nye parametre)
+  if(!state.tavleQuests.length){
+    state.tavleQuests = generateQuestList(
+      MAX_QUESTS_ON_TAVLE,
+      { playerLevel: getPlayerLevel(), archetypeLevels: state.archetypeLevel }
+    );
+  }
+
   const chronBtn=document.getElementById('chronicle-launcher');
   if(chronBtn) chronBtn.onclick=()=>switchView('chronicle');
   const backBtn=document.getElementById('back-to-main');
