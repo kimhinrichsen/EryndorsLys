@@ -1,10 +1,7 @@
 /* app.js – opdateret til multi-karakter med navn og avatar + Quest Generator v3
-   Funktioner:
-   - Karaktervalg / oprettelse med navn + avatar
-   - Blød reset (nulstil aktiv karakter)
-   - Fuld questmotor allerede integreret
+   Rettet: avatar <img> tags bruger nu enkeltanførselstegn omkring src for at undgå
+   at indlejrede dobbelte anførselstegn i SVG data-URL ødelægger attributten.
 */
-
 import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
 import {
@@ -382,7 +379,7 @@ function renderCharacterHeader(){
   const nm=document.getElementById('char-name-display');
   if(av){
     if(state.meta.avatar){
-      av.innerHTML=`<img src="${state.meta.avatar}" alt="Avatar" class="char-avatar">`;
+      av.innerHTML=`<img src='${state.meta.avatar}' alt='Avatar' class='char-avatar'>`;
     } else {
       av.innerHTML=`<div class="char-avatar placeholder">?</div>`;
     }
@@ -632,7 +629,7 @@ function renderActiveQuests(){
         if(aId && state.archetypeXP[aId]!=null){
           const before=calcLevel(state.archetypeXP[aId]);
           state.archetypeXP[aId]+=quest.xp;
-          const after=calcLevel(state.archetypeXP[aId]);
+            const after=calcLevel(state.archetypeXP[aId]);
           if(after>before){
             handleLevelUpLore(aId, before, after);
           } else {
@@ -907,7 +904,7 @@ function renderProfileList(){
   listEl.innerHTML=profiles.map(p=>`
     <div class="ps-item" data-pid="${p.id}">
       <div class="ps-left">
-        <div class="ps-avatar">${p.avatar?`<img src="${p.avatar}" alt="">`:'<span class="ps-avatar-placeholder">?</span>'}</div>
+        <div class="ps-avatar">${p.avatar?`<img src='${p.avatar}' alt=''>`:'<span class="ps-avatar-placeholder">?</span>'}</div>
         <div class="ps-info">
           <div class="ps-name">${p.name}</div>
           <div class="ps-meta">XP: ${p.xp}</div>
@@ -946,7 +943,7 @@ function initAvatarChooser(){
   if(grid){
     grid.innerHTML = PRESET_AVATARS.map(a=>`
       <button class="avatar-choice" data-avatar="${a.src}" title="${a.label}">
-        <img src="${a.src}" alt="${a.label}">
+        <img src='${a.src}' alt='${a.label}'>
       </button>`).join('');
     grid.querySelectorAll('.avatar-choice').forEach(btn=>{
       btn.onclick=()=>{
@@ -983,7 +980,7 @@ function initAvatarChooser(){
 function updateChosenPreview(preview){
   if(!preview) return;
   if(currentAvatarSelection){
-    preview.innerHTML=`<div class="chosen-label">Valgt Avatar:</div><img src="${currentAvatarSelection}" alt="Valgt" class="chosen-avatar-img">`;
+    preview.innerHTML=`<div class="chosen-label">Valgt Avatar:</div><img src='${currentAvatarSelection}' alt='Valgt' class='chosen-avatar-img'>`;
   } else {
     preview.innerHTML=`<em>Ingen avatar valgt</em>`;
   }
@@ -1001,12 +998,12 @@ function openCharacterEdit(){
         <input id="edit-char-name" value="${state.meta.name||''}" />
       </label>
       <div class="char-edit-avatar-block">
-        <div class="char-current-avatar">${state.meta.avatar?`<img src="${state.meta.avatar}" alt="">`:'<span class="ps-avatar-placeholder large">?</span>'}</div>
+        <div class="char-current-avatar">${state.meta.avatar?`<img src='${state.meta.avatar}' alt=''>`:'<span class="ps-avatar-placeholder large">?</span>'}</div>
         <div class="char-avatar-actions">
           <div class="mini-avatar-grid">
             ${PRESET_AVATARS.map(a=>`
               <button class="mini-avatar-btn" data-mini-avatar="${a.src}" title="${a.label}">
-                <img src="${a.src}" alt="${a.label}">
+                <img src='${a.src}' alt='${a.label}'>
               </button>`).join('')}
           </div>
           <label class="upload-inline">
@@ -1032,7 +1029,7 @@ function openCharacterEdit(){
   });
   function updateTempAvatar(){
     const cur=wrap.querySelector('.char-current-avatar');
-    if(cur) cur.innerHTML = tempAvatar?`<img src="${tempAvatar}" alt="">`:'<span class="ps-avatar-placeholder large">?</span>';
+    if(cur) cur.innerHTML = tempAvatar?`<img src='${tempAvatar}' alt=''>`:'<span class="ps-avatar-placeholder large">?</span>';
   }
   const fileInput=wrap.querySelector('#edit-avatar-upload');
   const uploadLabel=wrap.querySelector('.upload-inline');
