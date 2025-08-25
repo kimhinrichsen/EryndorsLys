@@ -1,7 +1,6 @@
-/* UDGANGSPUNKT: Tidligere styles.css + tilføjet minor/major popup varianter.
-   (For overskuelighed er filen ikke forkortet – erstat 1:1) */
+/* Styles med archetype-specifik lore-popup baggrund (v7.1) */
+/* (Resten svarer til tidligere version med små justeringer for baggrund) */
 
-/* ---------- BASIS / LAYOUT (forkortet forklaring: beholdt tidligere indhold) ---------- */
 body {
   background: url('./tavern-bg.jpg') center center/cover no-repeat fixed;
   color: #ffebc0;
@@ -16,85 +15,33 @@ body {
   justify-content: center;
 }
 
-.lock-scroll { overflow:hidden; }
+.lock-scroll { overflow: hidden; }
 
-.kro-header {
-  font-family: 'Cinzel', serif;
-  color: #ffeec0;
-  font-size: 2.3em;
-  text-align: center;
-  margin-bottom: 24px;
-  text-shadow: 0 0 22px #b4874f55;
-}
+/* Header / XP bar / Story / Profile (uændret fra tidligere svar - forkortet hvor muligt) */
+.kro-header { font-family: 'Cinzel', serif; color:#ffeec0; font-size:2.3em; text-align:center; margin-bottom:24px; text-shadow:0 0 22px #b4874f55; }
+.kro-xp-bar-container { width:100%; max-width:780px; display:flex; align-items:center; gap:15px; margin-bottom:18px; justify-content:center; }
+.kro-xp-emblem { font-size:2em; }
+.kro-xp-bar { flex:1; height:24px; background:linear-gradient(90deg,#ffeec0 0%,#b4874f 100%); border-radius:12px; box-shadow:0 0 9px #fffbe833; overflow:hidden; min-width:120px; max-width:400px; }
+.kro-xp-bar-fill { background:linear-gradient(90deg,#fcc65d,#f7c873 80%); height:100%; border-radius:12px; transition:width .32s; }
+.kro-xp-bar-label { font-size:1.09em; font-family:'Cinzel',serif; color:#ffeec0; text-shadow:0 0 7px #b4874f55; margin-left:10px; }
 
-.kro-xp-bar-container {
-  width: 100%; max-width: 780px;
-  display:flex; align-items:center; gap:15px;
-  margin-bottom:18px; justify-content:center;
-}
-.kro-xp-emblem { font-size:2em; margin-right:3px; }
-.kro-xp-bar {
-  flex:1; height:24px;
-  background:linear-gradient(90deg,#ffeec0 0%,#b4874f 100%);
-  border-radius:12px; position:relative;
-  box-shadow:0 0 9px #fffbe833;
-  overflow:hidden; min-width:120px; max-width:400px;
-}
-.kro-xp-bar-fill {
-  background:linear-gradient(90deg,#fcc65d,#f7c873 80%);
-  height:100%; border-radius:12px; transition:width .32s;
-}
-.kro-xp-bar-label {
-  font-size:1.09em; font-family:'Cinzel',serif; color:#ffeec0;
-  text-shadow:0 0 7px #b4874f55; margin-left:10px;
-}
+.kro-storybox { background:rgba(50,35,19,.97); border-radius:18px; box-shadow:0 6px 30px #432a0f99; padding:22px 24px; margin-bottom:18px; text-align:center; }
+.kro-storytitle { font-family:'Cinzel',serif; font-size:1.27em; margin-bottom:7px; }
+.kro-storybody { font-size:1.1em; }
 
-/* Story / Profile / Mentors (uddrag) */
-.kro-storybox {
-  background: rgba(50, 35, 19, 0.97);
-  border-radius: 18px;
-  box-shadow: 0 6px 30px #432a0f99;
-  padding: 22px 24px;
-  margin-bottom: 18px;
-  color: #ffeec0;
-  display:flex; flex-direction:column; align-items:center;
-}
-.kro-storytitle { font-family:'Cinzel',serif; font-size:1.27em; font-weight:bold; margin-bottom:7px; }
-.kro-storybody { font-size:1.1em; text-align:center; }
+.kro-profilbox { background:rgba(40,30,16,0.89); border-radius:16px; box-shadow:0 8px 30px #432a0f99; padding:14px 28px; margin:18px 0; font-family:'Cinzel',serif; font-size:1.25rem; display:flex; gap:12px; align-items:center; justify-content:center; }
 
-.kro-profilbox {
-  background:rgba(40,30,16,0.89);
-  border-radius:16px; box-shadow:0 8px 30px #432a0f99;
-  padding:14px 28px; margin:18px 0;
-  font-family:'Cinzel',serif; font-size:1.25rem; color:#ffeec0;
-  display:flex; align-items:center; gap:12px; justify-content:center;
-}
-
-/* Mentors */
-.kro-mentors { margin-bottom:16px; width:100%; max-width:1000px; display:flex; flex-direction:column; align-items:center; }
-.kro-mentors-row { width:100%; display:flex; flex-wrap:wrap; justify-content:center; gap:20px; }
-.kro-mentorbox {
-  padding:12px 10px; border-radius:14px; font-weight:600; font-size:1em;
-  display:flex; flex-direction:column; align-items:center;
-  box-shadow:0 0 14px #0007; border:2px solid #fffbe8;
-  background:#1a1a1a; cursor:pointer; min-width:120px; max-width:150px;
-  flex:1 1 140px; transition:transform .18s; position:relative;
-}
+.kro-mentors { width:100%; max-width:1000px; display:flex; flex-direction:column; align-items:center; margin-bottom:16px; }
+.kro-mentors-row { display:flex; flex-wrap:wrap; gap:20px; justify-content:center; width:100%; }
+.kro-mentorbox { padding:12px 10px; border-radius:14px; font-weight:600; display:flex; flex-direction:column; align-items:center; box-shadow:0 0 14px #0007; border:2px solid #fffbe8; background:#1a1a1a; cursor:pointer; min-width:120px; max-width:150px; flex:1 1 140px; transition:transform .18s; }
 .kro-mentorbox:hover { transform:scale(1.04); box-shadow:0 0 18px #fffbe855; }
-.kro-mentor-img {
-  width:70px; height:70px; object-fit:cover; border-radius:50%;
-  margin-bottom:7px; border:2px solid #fcc65d; box-shadow:0 0 10px #b4874f99; background:#fffbe8;
-}
+.kro-mentor-img { width:70px; height:70px; object-fit:cover; border-radius:50%; margin-bottom:7px; border:2px solid #fcc65d; box-shadow:0 0 10px #b4874f99; }
 .kro-mentor-main { font-size:1em; margin-bottom:6px; text-align:center; color:#ffeec0; font-family:'Cinzel',serif; }
 .kro-mentor-progressbar { width:100%; display:flex; flex-direction:column; align-items:center; gap:4px; }
-.kro-mentor-bar {
-  width:90%; height:10px; background:linear-gradient(90deg,#fffbe8 0%,#b4874f 100%);
-  border-radius:7px; box-shadow:0 0 5px #fffbe833; overflow:hidden; margin-bottom:2px;
-}
+.kro-mentor-bar { width:90%; height:10px; background:linear-gradient(90deg,#fffbe8 0%,#b4874f 100%); border-radius:7px; box-shadow:0 0 5px #fffbe833; overflow:hidden; margin-bottom:2px; }
 .kro-mentor-bar-fill { background:linear-gradient(90deg,#fcc65d,#f7c873 80%); height:100%; border-radius:7px; transition:width .32s; }
 .kro-mentor-bar-label { font-size:.82em; font-family:'Cinzel',serif; color:#ffeec0; }
-
-@media (min-width: 860px){
+@media (min-width:860px){
   .kro-mentors-row { flex-wrap:nowrap; gap:12px; }
   .kro-mentorbox { flex:0 1 165px; min-width:165px; max-width:170px; padding:10px 8px; }
   .kro-mentor-img { width:60px; height:60px; margin-bottom:6px; }
@@ -105,25 +52,15 @@ body {
 
 /* Quests (forkortet) */
 .kro-quests { display:flex; flex-wrap:wrap; gap:24px; justify-content:center; width:100%; max-width:1000px; }
-.kro-questroll {
-  background:rgba(60,44,24,0.97); border-radius:9px; border:2.5px solid #fffbe8;
-  padding:14px 20px; box-shadow:0 2px 12px #0005;
-  color:#ffeec0; min-width:280px; max-width:320px;
-  display:flex; flex-direction:column; flex:1 1 280px;
-}
-.kro-btn {
-  background:linear-gradient(90deg,#f7c873,#fcc65d);
-  color:#32291f; font-family:'Cinzel',serif;
-  padding:7px 18px; border-radius:9px; border:2px solid #fffbe8;
-  font-weight:600; cursor:pointer; box-shadow:0 0 10px #f7c87366;
-}
+.kro-questroll { background:rgba(60,44,24,.97); border-radius:9px; border:2.5px solid #fffbe8; padding:14px 20px; box-shadow:0 2px 12px #0005; color:#ffeec0; min-width:280px; max-width:320px; display:flex; flex-direction:column; flex:1 1 280px; }
+.kro-btn { background:linear-gradient(90deg,#f7c873,#fcc65d); color:#32291f; font-family:'Cinzel',serif; padding:7px 18px; border-radius:9px; border:2px solid #fffbe8; font-weight:600; cursor:pointer; box-shadow:0 0 10px #f7c87366; }
 .kro-btn:hover { background:linear-gradient(90deg,#fcc65d,#f7c873); box-shadow:0 0 18px #f7c87399; }
-.kro-btn.kro-close {
-  background:#b4874f; color:#fff; border:none; border-radius:50%;
-  width:42px; height:42px; display:flex; align-items:center; justify-content:center;
-  box-shadow:0 0 7px #b4874f99; font-size:1.1em;
-}
+.kro-btn.kro-close { background:#b4874f; color:#fff; border:none; border-radius:50%; width:42px; height:42px; display:flex; justify-content:center; align-items:center; }
 
+:root { --layout-col-width:760px; }
+#progressbar,#story,#profile,#quests,#activequests { max-width:var(--layout-col-width); width:100%; margin:0 auto; }
+
+/* Mentor overlay baggrund */
 .kro-mentor-overlaybox--with-bg {
   position:relative; overflow:hidden; background:#111; color:#ffeec0; border-radius:18px;
 }
@@ -136,15 +73,7 @@ body {
 }
 .kro-mentor-overlaybox--with-bg > * { position:relative; z-index:1; }
 
-/* Center kolonne */
-:root {
-  --layout-col-width:760px;
-}
-#progressbar,#story,#profile,#quests,#activequests {
-  max-width:var(--layout-col-width); width:100%; margin:0 auto;
-}
-
-/* ---------- LORE POPUPS (fælles stil) ---------- */
+/* ---------- LORE POPUPS (opdateret) ---------- */
 .lore-overlay-wrap {
   position:fixed; inset:0;
   display:flex; align-items:center; justify-content:center;
@@ -159,6 +88,7 @@ body {
 .lore-overlay-fade { animation:loreOverlayFadeOut .3s forwards; }
 @keyframes loreOverlayFadeOut { to{opacity:0;} }
 
+/* Baseline popup (fallback når ingen archetype) */
 .lore-popup {
   position:relative; width:100%; max-width:640px;
   background:linear-gradient(135deg,rgba(38,52,63,.88),rgba(28,36,44,.92) 55%,rgba(24,30,36,.96));
@@ -170,13 +100,34 @@ body {
   overflow:hidden; color:#e6f2fa;
   font-family:system-ui,"Segoe UI",Arial,sans-serif;
 }
-.lore-popup::before {
-  content:""; position:absolute; inset:0;
+
+/* Archetype-baggrund aktiveret */
+.lore-popup--arch {
   background:
-    radial-gradient(circle at 78% 18%,rgba(120,180,240,.18),transparent 70%),
-    linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,0) 50%);
-  mix-blend-mode:overlay; pointer-events:none; opacity:.85;
+    linear-gradient(160deg,rgba(12,16,20,0.35) 0%,rgba(12,16,20,0.78) 60%,rgba(8,10,14,0.92) 100%),
+    var(--arch-bg) center/cover no-repeat;
 }
+
+/* Variant farvelægning (overlay blend via pseudo) */
+.lore-popup--arch.lore-popup--major::before,
+.lore-popup--arch.lore-popup--minor::before {
+  content:"";
+  position:absolute; inset:0;
+  pointer-events:none;
+  mix-blend-mode:overlay;
+  opacity:.9;
+}
+.lore-popup--arch.lore-popup--major::before {
+  background:
+    radial-gradient(circle at 30% 20%,rgba(255,213,150,0.40),rgba(0,0,0,0) 55%),
+    linear-gradient(145deg,rgba(255,196,120,0.18),rgba(0,0,0,0) 60%);
+}
+.lore-popup--arch.lore-popup--minor::before {
+  background:
+    radial-gradient(circle at 70% 25%,rgba(140,255,180,0.35),rgba(0,0,0,0) 55%),
+    linear-gradient(145deg,rgba(120,210,150,0.18),rgba(0,0,0,0) 60%);
+}
+
 .lore-popup::after {
   content:""; position:absolute; inset:0; border-radius:inherit; padding:1px;
   background:linear-gradient(120deg,#5fa4d5,#b6d7ee 30%,#5fa4d5 60%,#8ecaf2);
@@ -184,6 +135,13 @@ body {
   -webkit-mask-composite:xor; mask-composite:exclude;
   opacity:.55; pointer-events:none;
 }
+.lore-popup--major::after {
+  background:linear-gradient(120deg,#d5a55f,#f3d29a 30%,#d5a55f 60%,#f0c47a);
+}
+.lore-popup--minor::after {
+  background:linear-gradient(120deg,#4fa86b,#8fd5a7 30%,#4fa86b 60%,#9be3b5);
+}
+
 .lore-popup-appear { animation:lorePopupIn .46s cubic-bezier(.3,.9,.25,1.2); }
 .lore-popup-leave { animation:lorePopupOut .3s ease forwards; }
 @keyframes lorePopupIn {
@@ -194,6 +152,7 @@ body {
 @keyframes lorePopupOut {
   to { transform:scale(.88) translateY(10px); opacity:0; filter:blur(2px); }
 }
+
 .lp-close {
   position:absolute; top:10px; right:10px;
   background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.2);
@@ -207,44 +166,20 @@ body {
   display:flex; align-items:center; justify-content:center; gap:.65rem;
   color:#e3f2ff; text-shadow:0 0 8px rgba(120,180,240,.35);
 }
+.lore-popup--major .lp-title { color:#ffe9c8; text-shadow:0 0 10px rgba(255,210,130,.5); }
+.lore-popup--minor .lp-title { color:#d5ffe4; text-shadow:0 0 10px rgba(130,230,170,.55); }
+
 .lp-body { position:relative; z-index:2; min-height:90px; }
-.lp-bg-media {
-  position:absolute; inset:-10% -10% -10% -10%; opacity:.18;
-  filter:blur(12px) saturate(160%); pointer-events:none; z-index:1;
-}
-.lp-bg-media img { width:100%; height:100%; object-fit:cover; transform:scale(1.1); }
-.lp-major { position:relative; z-index:2; font-size:1.05rem; line-height:1.55rem; margin:0; }
-.lp-minor-frag {
-  position:relative; z-index:2; font-size:1.05rem; line-height:1.45rem; margin:0;
-  font-style:italic;
-}
-.lp-actions {
-  display:flex; justify-content:flex-end; gap:.8rem; margin-top:1.2rem;
-}
+.lp-major { font-size:1.05rem; line-height:1.55rem; margin:0; }
+.lp-minor-frag { font-size:1.05rem; line-height:1.45rem; margin:0; font-style:italic; }
+
+.lp-actions { display:flex; justify-content:flex-end; gap:.8rem; margin-top:1.2rem; }
 .lp-ok-btn {
-  background:linear-gradient(90deg,#5fa4d5,#82c2f0);
-  border:none; color:#0d2533; font-weight:600; font-family:system-ui,"Segoe UI",Arial,sans-serif;
-  padding:.65rem 1.15rem; border-radius:10px; cursor:pointer;
-  box-shadow:0 4px 18px -2px rgba(100,160,210,.45);
-  transition:background .25s, transform .25s;
+  background:linear-gradient(90deg,#5fa4d5,#82c2f0); border:none; color:#0d2533;
+  font-weight:600; padding:.65rem 1.15rem; border-radius:10px; cursor:pointer;
+  box-shadow:0 4px 18px -2px rgba(100,160,210,.45); transition:background .25s, transform .25s;
 }
 .lp-ok-btn:hover { background:linear-gradient(90deg,#68b4ea,#95d4fb); transform:translateY(-2px); }
-
-/* Variant farver */
-.lore-popup--major::after {
-  background:linear-gradient(120deg,#d5a55f,#f3d29a 30%,#d5a55f 60%,#f0c47a);
-}
-.lore-popup--major .lp-title { color:#ffe8c4; text-shadow:0 0 10px rgba(255,210,130,.45); }
-.lore-popup--minor {
-  border-color:#3d5a3d;
-  box-shadow:0 10px 34px -6px rgba(0,0,0,.6),
-             0 0 0 1px rgba(255,255,255,.04),
-             0 0 22px -2px rgba(120,200,140,.35);
-}
-.lore-popup--minor::after {
-  background:linear-gradient(120deg,#4fa86b,#8fd5a7 30%,#4fa86b 60%,#9be3b5);
-}
-.lore-popup--minor .lp-title { color:#d5ffe4; text-shadow:0 0 10px rgba(120,200,140,.55); }
 
 @media (max-width:540px){
   .lore-popup { max-width:92%; padding:1.2rem 1.1rem 1.4rem; border-radius:16px; }
@@ -252,18 +187,17 @@ body {
   .lp-major, .lp-minor-frag { font-size:1rem; line-height:1.45rem; }
 }
 
-/* ---------- KRØNIKE (kort uddrag) ---------- */
+/* ---------- KRØNIKE (uddrag) ---------- */
 .book-page { padding:1rem; font-family:system-ui,Arial,sans-serif; }
 .book-page h3 { margin-top:0; font-family:'Cinzel',serif; letter-spacing:.5px; }
 .lore-list { display:flex; flex-direction:column; gap:.9rem; }
-.lore-item {
-  background:rgba(255,255,255,.04);
-  border:1px solid rgba(255,255,255,.08);
-  padding:.75rem 1rem; border-radius:10px;
-  backdrop-filter:blur(2px);
-}
+.lore-item { background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); padding:.75rem 1rem; border-radius:10px; backdrop-filter:blur(2px); }
 .lore-head { display:flex; justify-content:space-between; font-size:.8rem; opacity:.8; }
 .lore-title { font-weight:600; }
 .lore-major { margin-top:.4rem; font-size:.95rem; line-height:1.3rem; }
 
-/* (Resten af tidligere styles som table osv. kan bevares eller udvides efter behov) */
+/* Achievement toast (fra tidligere) */
+.ach-toast { font-family:system-ui,Arial,sans-serif; }
+
+/* Scroll lock fix i nogle browsere på mobil */
+html.lock-scroll, body.lock-scroll { height:100%; overflow:hidden; }
