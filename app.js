@@ -1,7 +1,11 @@
-/* Eryndors Lys – app.js v7.1
-   - ALT lore (major + minor) som popups (fra v7)
-   - Kun major arkiveres (fra v7)
-   - v7.1: Archetype-specifik baggrund på både major og minor popups
+/* Eryndors Lys – app.js v7.2 (stabil)
+   - Alt lore: major + minor som separate popups
+   - Kun major arkiveres i krøniken
+   - Popup-kø + archetype-specifik baggrund
+   - Mentorer klikbare, quests virker
+   - Ingen body.innerHTML overskrivning (markup i #app)
+   - DOMContentLoaded init + robuste guards
+   - Kompatibel med eksisterende v7 save (ingen datamodel ændring)
 */
 
 import { storyChapters } from './story.js';
@@ -13,25 +17,27 @@ import {
   getArchetypeImagePath
 } from './archetypes.js';
 
-const SAVE_KEY = 'eryndors_state_v7'; // version uændret (datamodel ikke ændret)
-const SAVE_VERSION = 7;
+/* ---------- KONSTANTER ---------- */
+const SAVE_KEY = 'eryndors_state_v7';
+const SAVE_VERSION = 7; // uændret pga. samme datamodel
 const SAVE_DEBOUNCE_MS = 400;
 const MAX_QUESTS_ON_TAVLE = 6;
-
 const XP_BASE = 50;
 const XP_EXPONENT = 1.25;
-
 const levelEmblems = {1:"🔸",2:"✨",3:"⭐",4:"🌟",5:"🌠"};
 
-const archetypes = archetypesFromRegistry;
-
-/* ---- Konfiguration ---- */
 const LORE_CONFIG = {
   major: { mode: 'popup', archive: true },
   minor: { mode: 'popup', archive: false }
 };
 
-/* ---------- XP UTIL ---------- */
+const archetypes = archetypesFromRegistry;
+
+/* ---------- GLOBAL FEJL LOGGING ---------- */
+window.addEventListener('error', e=>console.error('[GLOBAL ERROR]', e.message, e.error));
+window.addEventListener('unhandledrejection', e=>console.error('[UNHANDLED PROMISE]', e.reason));
+
+/* ---------- UTIL ---------- */
 function xpRequiredForLevel(l){ return Math.floor(XP_BASE * Math.pow(l, XP_EXPONENT)); }
 function xpForLevel(l){ let x=0; for(let i=1;i<l;i++) x+=xpRequiredForLevel(i); return x; }
 function calcLevel(x, max=100){ for(let L=1;L<max;L++){ if(x < xpForLevel(L+1)) return L; } return max; }
@@ -41,7 +47,7 @@ function calcProgress(x, max=100){
 }
 function getCurrentStoryChapter(){ return calcLevel(state.xp)-1; }
 
-/* ---------- CANONICAL ARKETYPE ID ---------- */
+/* ---------- CANONICAL ID ---------- */
 const _canonIdx = (() => {
   function norm(s){
     return (s||'').toString().trim().toLowerCase()
@@ -102,7 +108,6 @@ function checkAchievements(reason){
     scheduleSave(reason||'achievements');
   }
 }
-
 function showAchievementToast(def){
   const box=document.createElement('div');
   box.className='ach-toast';
@@ -134,29 +139,26 @@ function setMinorShownCount(archetypeId, level, count){
   if(!state.minorLoreProgress[archetypeId]) state.minorLoreProgress[archetypeId]={};
   state.minorLoreProgress[archetypeId][level]=count;
 }
-
 function unlockMajorLore(archetypeId, level){
   if(!LORE_CONFIG.major.archive) return;
   const lore=getArchetypeLore(archetypeId, level);
   if(!lore) return;
-  const archName = archetypeMap[archetypeId]?.name || archetypeId;
   const key=`${archetypeId}_${level}`;
   if(!state.chronicleLore.some(e=>e.id===key)){
     state.chronicleLore.push({
       id:key,
       archetypeId,
-      archetypeName: archName,
+      archetypeName: archetypeMap[archetypeId]?.name || archetypeId,
       level,
-      majorLore:lore.majorLore,
-      ts:Date.now()
+      majorLore: lore.majorLore,
+      ts: Date.now()
     });
   }
 }
 
-/* ----- Popup-kø ----- */
+/* ---------- POPUP KØ ---------- */
 const popupQueue = [];
 let popupActive = false;
-
 function ensurePopupContainer(){
   if(!document.getElementById('lore-popup-container')){
     const c=document.createElement('div');
@@ -165,7 +167,6 @@ function ensurePopupContainer(){
     document.body.appendChild(c);
   }
 }
-
 function enqueuePopup(builder){
   popupQueue.push(builder);
   if(!popupActive) runNextPopup();
@@ -173,38 +174,28 @@ function enqueuePopup(builder){
 function runNextPopup(){
   if(!popupQueue.length){ popupActive=false; return; }
   popupActive=true;
-  const builder = popupQueue.shift();
+  const builder=popupQueue.shift();
   builder(()=>{ popupActive=false; runNextPopup(); });
 }
-
-/* --- Archetype-specifikt baggrundslag i selve popup-elementet --- */
 function basePopupHtml({title, bodyHtml, archetypeId, variant}){
   const bgPath = archetypeId ? getArchetypeImagePath(archetypeId) : null;
-  // Inline style med CSS custom property - bruges af CSS til variant gradient + baggrund
   const bgStyle = bgPath ? `style="--arch-bg:url('${bgPath}');"` : '';
   return `
   <div class="lore-popup lore-popup-appear ${variant||''} ${bgPath?'lore-popup--arch':''}"
        ${archetypeId?`data-archetype="${archetypeId}"`:''} ${bgStyle}>
     <button class="lp-close" aria-label="Luk">✖</button>
-    <div class="lp-top">
-      <h2 class="lp-title">${title}</h2>
-    </div>
-    <div class="lp-body">
-      ${bodyHtml}
-    </div>
-    <div class="lp-actions">
-      <button class="btn primary lp-ok-btn">Fortsæt</button>
-    </div>
+    <div class="lp-top"><h2 class="lp-title">${title}</h2></div>
+    <div class="lp-body">${bodyHtml}</div>
+    <div class="lp-actions"><button class="btn primary lp-ok-btn">Fortsæt</button></div>
   </div>`;
 }
-
 function queuePopup({title, archetypeId, bodyHtml, variant}){
   enqueuePopup(done=>{
     ensurePopupContainer();
     const container=document.getElementById('lore-popup-container');
     const wrap=document.createElement('div');
     wrap.className='lore-overlay-wrap';
-    wrap.innerHTML=basePopupHtml({title, bodyHtml, archetypeId, variant});
+    wrap.innerHTML=basePopupHtml({title, archetypeId, bodyHtml, variant});
     container.appendChild(wrap);
     const popup=wrap.querySelector('.lore-popup');
     void popup.offsetWidth;
@@ -212,51 +203,38 @@ function queuePopup({title, archetypeId, bodyHtml, variant}){
       popup.classList.remove('lore-popup-appear');
       popup.classList.add('lore-popup-leave');
       wrap.classList.add('lore-overlay-fade');
-      setTimeout(()=>{
-        wrap.remove();
-        done();
-      },310);
+      setTimeout(()=>{ wrap.remove(); done(); },310);
     };
     wrap.querySelector('.lp-close').onclick=close;
     wrap.querySelector('.lp-ok-btn').onclick=close;
-    wrap.addEventListener('mousedown', e=>{
-      if(e.target===wrap) close();
-    });
+    wrap.addEventListener('mousedown', e=>{ if(e.target===wrap) close(); });
     window.addEventListener('keydown', function esc(e){
-      if(e.key==='Escape'){
-        close();
-        window.removeEventListener('keydown', esc);
-      }
+      if(e.key==='Escape'){ close(); window.removeEventListener('keydown', esc); }
     });
   });
 }
 
-/* ----- Major events ----- */
+/* ---------- LORE EVENTS ---------- */
 function showMajorLorePopup(archetypeId, level){
   if(LORE_CONFIG.major.mode!=='popup') return;
   const lore=getArchetypeLore(archetypeId, level);
   if(!lore) return;
-  const archName = archetypeMap[archetypeId]?.name || archetypeId;
   queuePopup({
-    title: `${archName} – Level ${level}`,
+    title:`${archetypeMap[archetypeId]?.name || archetypeId} – Level ${level}`,
     archetypeId,
     variant:'lore-popup--major',
     bodyHtml:`<p class="lp-major">${lore.majorLore}</p>`
   });
 }
-
-/* ----- Minor events ----- */
 function showMinorLorePopup(archetypeId, level, line){
   if(LORE_CONFIG.minor.mode!=='popup') return;
-  const archName = archetypeMap[archetypeId]?.name || archetypeId;
   queuePopup({
-    title: `${archName} – Fragment (Lvl ${level})`,
+    title:`${archetypeMap[archetypeId]?.name || archetypeId} – Fragment (Lvl ${level})`,
     archetypeId,
     variant:'lore-popup--minor',
     bodyHtml:`<p class="lp-minor-frag">${line}</p>`
   });
 }
-
 function maybeUnlockMinorLore(archetypeId){
   const xp=state.archetypeXP[archetypeId];
   const level=calcLevel(xp);
@@ -275,8 +253,6 @@ function maybeUnlockMinorLore(archetypeId){
     } else break;
   }
 }
-
-/* ----- Level-up håndtering ----- */
 function handleLevelUpLore(archetypeId, beforeLevel, afterLevel){
   for(let L=beforeLevel+1; L<=afterLevel; L++){
     unlockMajorLore(archetypeId, L);
@@ -284,8 +260,6 @@ function handleLevelUpLore(archetypeId, beforeLevel, afterLevel){
     if(state.currentView==='main') showMajorLorePopup(archetypeId, L);
   }
 }
-
-/* ----- Backfill major ----- */
 function backfillMajorLore(){
   archetypes.forEach(a=>{
     const xp=state.archetypeXP[a.id];
@@ -293,67 +267,67 @@ function backfillMajorLore(){
     for(let L=2; L<=lvl; L++){
       const key=`${a.id}_${L}`;
       if(!state.chronicleLore.some(e=>e.id===key)){
-        unlockMajorLore(a.id, L); // lydløs
+        unlockMajorLore(a.id, L);
       }
     }
   });
 }
 
-/* ---------- DOM SKELETON ---------- */
-document.body.innerHTML = `
-  <div id="main-view" class="view">
-    <div class="app-shell">
+/* ---------- DOM / RENDER HELPERS ---------- */
+const rootId='app';
+function root(){ return document.getElementById(rootId); }
+function buildStaticMarkup(){
+  const r=root();
+  if(!r){ console.error('[INIT] Mangler #app root'); return; }
+  r.innerHTML=`
+    <div id="main-view" class="view">
       <header class="top-header">
         <h1 class="kro-header">🍻 Eryndors Kro</h1>
       </header>
-      <section id="progressbar" class="center-block"></section>
-      <section id="story" class="center-block"></section>
-      <section id="profile" class="center-block"></section>
-      <section id="quests" class="center-block"></section>
-      <section id="activequests" class="center-block"></section>
+      <section id="progressbar"></section>
+      <section id="story"></section>
+      <section id="profile"></section>
+      <section id="quests"></section>
+      <section id="activequests"></section>
+      <button id="chronicle-launcher" class="chronicle-launch pulse" title="Åbn Krøniken">
+        <span class="icon">📖</span><span class="label">Krøniken</span>
+      </button>
+      <div id="mentor-overlay" style="display:none;"></div>
+      <div id="lore-popup-container" style="position:fixed;inset:0;pointer-events:none;z-index:5000;"></div>
     </div>
-    <button id="chronicle-launcher" class="chronicle-launch pulse" title="Åbn Krøniken">
-      <span class="icon">📖</span>
-      <span class="label">Krøniken</span>
-    </button>
-    <div id="mentor-overlay" style="display:none;"></div>
-    <div id="lore-popup-container" style="position:fixed;inset:0;pointer-events:none;z-index:5000;"></div>
-  </div>
-
-  <div id="chronicle-view" class="view" style="display:none;">
-    <div class="chron-shell">
-      <header class="chron-topbar">
-        <button id="back-to-main" class="btn back-btn">⬅ Tilbage</button>
-        <h2 class="chron-title">Krøniken</h2>
-        <div class="chron-actions">
-          <button id="save-now" class="btn ghost">💾 Gem</button>
-        </div>
-      </header>
-
-      <div class="book-wrapper">
-        <div class="book">
-          <div class="book-cover">
-            <div class="book-cover-inner">
-              <div class="book-logo">📖</div>
-              <div class="book-brand">Eryndors Lys</div>
-            </div>
+    <div id="chronicle-view" class="view" style="display:none;">
+      <div class="chron-shell">
+        <header class="chron-topbar">
+          <button id="back-to-main" class="btn back-btn">⬅ Tilbage</button>
+          <h2 class="chron-title">Krøniken</h2>
+          <div class="chron-actions">
+            <button id="save-now" class="btn ghost">💾 Gem</button>
           </div>
-          <div class="book-spine"></div>
-          <div class="book-pages">
-            <div class="book-pagination">
-              <button id="book-prev" class="btn mini" title="Forrige">⬅</button>
-              <div class="page-indicator">
-                <span id="book-page-current">1</span>/<span id="book-page-total">2</span>
+        </header>
+        <div class="book-wrapper">
+          <div class="book">
+            <div class="book-cover">
+              <div class="book-cover-inner">
+                <div class="book-logo">📖</div>
+                <div class="book-brand">Eryndors Lys</div>
               </div>
-              <button id="book-next" class="btn mini" title="Næste">➡</button>
             </div>
-            <div class="book-spread" id="book-spread"></div>
+            <div class="book-spine"></div>
+            <div class="book-pages">
+              <div class="book-pagination">
+                <button id="book-prev" class="btn mini" title="Forrige">⬅</button>
+                <div class="page-indicator">
+                  <span id="book-page-current">1</span>/<span id="book-page-total">2</span>
+                </div>
+                <button id="book-next" class="btn mini" title="Næste">➡</button>
+              </div>
+              <div class="book-spread" id="book-spread"></div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  </div>
-`;
+    </div>`;
+}
 
 /* ---------- VIEW SWITCH ---------- */
 function setBodyScrollLock(view){
@@ -366,23 +340,21 @@ function setBodyScrollLock(view){
   }
 }
 function switchView(view){
-  state.currentView = view;
-  document.getElementById('main-view').style.display = view==='main' ? '' : 'none';
-  document.getElementById('chronicle-view').style.display = view==='chronicle' ? '' : 'none';
+  state.currentView=view;
+  const main=document.getElementById('main-view');
+  const chron=document.getElementById('chronicle-view');
+  if(main) main.style.display = view==='main' ? '' : 'none';
+  if(chron) chron.style.display = view==='chronicle' ? '' : 'none';
   setBodyScrollLock(view);
   if(view==='chronicle') renderBookPages();
   scheduleSave('switchView');
 }
-document.getElementById('chronicle-launcher').onclick=()=>switchView('chronicle');
-document.getElementById('back-to-main').onclick=()=>switchView('main');
-window.addEventListener('keydown', e=>{
-  if(e.key==='Escape' && state.currentView==='chronicle') switchView('main');
-});
 
 /* ---------- RENDERING ---------- */
 function renderProgressBar(){
   const L=calcLevel(state.xp), p=calcProgress(state.xp);
-  document.getElementById('progressbar').innerHTML=`
+  const el=document.getElementById('progressbar'); if(!el) return;
+  el.innerHTML=`
     <div class="kro-xp-bar-container">
       <span class="kro-xp-emblem">${levelEmblems[L]||''}</span>
       <div class="kro-xp-bar"><div class="kro-xp-bar-fill" style="width:${Math.round(p*100)}%"></div></div>
@@ -392,14 +364,15 @@ function renderProgressBar(){
 function renderStory(){
   const idx=Math.max(0, Math.min(storyChapters.length-1, getCurrentStoryChapter()));
   const chapter=storyChapters[idx];
-  document.getElementById('story').innerHTML=`
+  const el=document.getElementById('story'); if(!el) return;
+  el.innerHTML=`
     <div class="kro-storybox">
       <h2 class="kro-storytitle">${chapter.title}</h2>
       <div class="kro-storybody">${chapter.text}</div>
     </div>`;
 }
 function renderProfile(){
-  const div=document.getElementById('profile');
+  const div=document.getElementById('profile'); if(!div) return;
   div.innerHTML=`
     <div class="kro-profilbox">
       <span class="kro-xp-header">🍺 Stjernelys: <b>${state.xp}</b> 🪙</span>
@@ -408,9 +381,8 @@ function renderProfile(){
       <div class="kro-mentors-row">
         ${archetypes.map(a=>{
           const xp=state.archetypeXP[a.id], lv=calcLevel(xp), pr=calcProgress(xp);
-          const img=getArchetypeImagePath(a.id);
           return `<span class="kro-mentorbox" data-mentor="${a.id}">
-              <img class="kro-mentor-img" src="${img}" alt="${a.name}">
+              <img class="kro-mentor-img" src="${getArchetypeImagePath(a.id)}" alt="${a.name}">
               <span class="kro-mentor-main">${a.icon||''} <b>${a.name}</b></span>
               <span class="kro-mentor-progressbar">
                 <span class="kro-mentor-emblem">${levelEmblems[lv]||''}</span>
@@ -421,18 +393,20 @@ function renderProfile(){
         }).join('')}
       </div>
     </div>`;
-  div.querySelectorAll('[data-mentor]').forEach(el=> el.onclick=()=>showMentorOverlay(el.getAttribute('data-mentor')));
+  div.querySelectorAll('.kro-mentorbox[data-mentor]').forEach(el=>{
+    el.onclick=()=>showMentorOverlay(el.getAttribute('data-mentor'));
+  });
 }
 function showMentorOverlay(id){
   id=canonicalArchetypeId(id);
   const mentor=archetypes.find(a=>a.id===id);
   if(!mentor) return;
-  const overlay=document.getElementById('mentor-overlay');
+  let overlay=document.getElementById('mentor-overlay');
+  if(!overlay){ overlay=document.createElement('div'); overlay.id='mentor-overlay'; document.body.appendChild(overlay); }
   const mentorQuests = state.tavleQuests.concat(state.active).filter(q=>q.archetype===id && !q.completed);
   const xp=state.archetypeXP[id], lv=calcLevel(xp);
-  const imgPath=getArchetypeImagePath(id);
   overlay.innerHTML=`
-    <div class="kro-mentor-overlaybox kro-mentor-overlaybox--with-bg" style="--mentor-overlay-bg:url('${imgPath}')">
+    <div class="kro-mentor-overlaybox kro-mentor-overlaybox--with-bg" style="--mentor-overlay-bg:url('${getArchetypeImagePath(id)}')">
       <button class="kro-btn kro-close" id="close-mentor-overlay">✖</button>
       <div class="kro-mentor-overlay-header">
         <span class="kro-mentor-overlay-icon">${mentor.icon||''}</span>
@@ -457,15 +431,18 @@ function showMentorOverlay(id){
             </div>`).join('')}
       </div>
     </div>`;
-  overlay.style.display='flex';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(32,16,4,0.8);z-index:5500;display:flex;align-items:center;justify-content:center;padding:20px;';
   document.body.classList.add('lock-scroll');
-  document.getElementById('close-mentor-overlay').onclick=()=>{
-    overlay.style.display='none';
-    document.body.classList.remove('lock-scroll');
-    overlay.innerHTML='';
-  };
+  const closeBtn=document.getElementById('close-mentor-overlay');
+  if(closeBtn) closeBtn.onclick=closeMentorOverlay;
+  overlay.addEventListener('mousedown', e=>{ if(e.target===overlay) closeMentorOverlay(); });
 }
-
+function closeMentorOverlay(){
+  const overlay=document.getElementById('mentor-overlay');
+  if(overlay){ overlay.style.display='none'; overlay.innerHTML=''; }
+  document.body.classList.remove('lock-scroll');
+  document.documentElement.classList.remove('lock-scroll');
+}
 function refillTavleQuests(){
   while(state.tavleQuests.length < MAX_QUESTS_ON_TAVLE){
     const n=generateQuestList(1)[0];
@@ -477,12 +454,11 @@ function refillTavleQuests(){
 }
 function renderQuests(){
   refillTavleQuests();
-  const div=document.getElementById('quests');
+  const div=document.getElementById('quests'); if(!div) return;
   div.innerHTML=`<h2 class="kro-questheader">📜 Quests på tavlen</h2><div class="kro-quests"></div>`;
-  const wrap=div.querySelector('.kro-quests');
+  const wrap=div.querySelector('.kro-quests'); if(!wrap) return;
   wrap.innerHTML='';
   state.tavleQuests.forEach(q=>{
-    if(!q) return;
     const progressHtml = q.type==='progress'
       ? `<div class="kro-quest-progress">Fremgang: ${q.progress} / ${q.vars[q.goal]}
            <button class="kro-btn" data-progress="${q.id}">+1</button></div>` : '';
@@ -517,9 +493,9 @@ function renderQuests(){
   });
 }
 function renderActiveQuests(){
-  const div=document.getElementById('activequests');
+  const div=document.getElementById('activequests'); if(!div) return;
   div.innerHTML=`<h2 class="kro-questheader">🎒 Aktive quests</h2><div class="kro-quests"></div>`;
-  const wrap=div.querySelector('.kro-quests');
+  const wrap=div.querySelector('.kro-quests'); if(!wrap) return;
   wrap.innerHTML='';
   state.active.forEach(q=>{
     const progressHtml = q.type==='progress'
@@ -559,11 +535,11 @@ function renderActiveQuests(){
           const before=calcLevel(state.archetypeXP[aId]);
           state.archetypeXP[aId]+=quest.xp;
           const after=calcLevel(state.archetypeXP[aId]);
-          if(after>before){
-            handleLevelUpLore(aId, before, after);
-          } else {
-            maybeUnlockMinorLore(aId);
-          }
+            if(after>before){
+              handleLevelUpLore(aId, before, after);
+            } else {
+              maybeUnlockMinorLore(aId);
+            }
           state.archetypeLevel[aId]=after;
         }
         state.active.splice(idx,1);
@@ -606,12 +582,16 @@ function renderBookPages(){
   if(!spread) return;
   const totalPages=BOOK_PAGE_PAIR.length;
   if(state.bookPageIndex>=totalPages) state.bookPageIndex=totalPages-1;
-  document.getElementById('book-page-total').textContent=totalPages;
-  document.getElementById('book-page-current').textContent=state.bookPageIndex+1;
+  const cur=document.getElementById('book-page-current');
+  const tot=document.getElementById('book-page-total');
+  if(cur) cur.textContent=String(state.bookPageIndex+1);
+  if(tot) tot.textContent=String(totalPages);
   const pair=BOOK_PAGE_PAIR[state.bookPageIndex];
   spread.innerHTML=pair.map(p=>renderBookPage(p)).join('');
-  document.getElementById('book-prev').disabled = state.bookPageIndex===0;
-  document.getElementById('book-next').disabled = state.bookPageIndex===totalPages-1;
+  const prev=document.getElementById('book-prev');
+  const next=document.getElementById('book-next');
+  if(prev) prev.disabled = state.bookPageIndex===0;
+  if(next) next.disabled = state.bookPageIndex===totalPages-1;
 }
 function renderBookPage(id){
   switch(id){
@@ -648,7 +628,7 @@ function renderStatsPage(){
 function renderAchievementsPage(){
   const unlocked=[],locked=[];
   achievementDefs.forEach(d=> state.achievementsUnlocked.has(d.id)?unlocked.push(d):locked.push(d));
-  function section(label, arr, ok){
+  function block(label, arr, ok){
     if(!arr.length) return '';
     return `<div class="ach-block">
       <h4>${label}</h4>
@@ -664,8 +644,8 @@ function renderAchievementsPage(){
   }
   return `<div class="book-page book-page--achievements">
     <h3>Achievements</h3>
-    ${section('Åbnet', unlocked, true)}
-    ${section('Låste', locked, false)}
+    ${block('Åbnet', unlocked, true)}
+    ${block('Låste', locked, false)}
   </div>`;
 }
 function renderCompletedPage(){
@@ -679,9 +659,7 @@ function renderCompletedPage(){
     <h3>Gennemførte Quests</h3>
     <div class="qtable-wrap">
       <table class="qtable">
-        <thead>
-          <tr><th>Navn</th><th>Arketype</th><th>XP</th><th>Req lvl</th><th>Type</th><th>Tid</th></tr>
-        </thead>
+        <thead><tr><th>Navn</th><th>Arketype</th><th>XP</th><th>Req lvl</th><th>Type</th><th>Tid</th></tr></thead>
         <tbody>
           ${list.map(q=>`
             <tr>
@@ -711,31 +689,29 @@ function renderLorePage(){
             <span class="lore-title">${e.archetypeName} – Level ${e.level}</span>
             <span class="lore-time">${new Date(e.ts).toLocaleTimeString()}</span>
           </div>
-          <div class="lore-major">${e.majorLore}</div>
+            <div class="lore-major">${e.majorLore}</div>
         </div>`).join('')}
     </div>
   </div>`;
 }
 
-/* ---------- BOOK NAV ---------- */
+/* ---------- BOOK NAV EVENTS ---------- */
 document.addEventListener('click', e=>{
   if(e.target.id==='book-prev'){
     if(state.bookPageIndex>0){
       state.bookPageIndex--;
-      renderBookPages();
-      scheduleSave('bookPage');
+      renderBookPages(); scheduleSave('bookPage');
     }
   }
   if(e.target.id==='book-next'){
     if(state.bookPageIndex<BOOK_PAGE_PAIR.length-1){
       state.bookPageIndex++;
-      renderBookPages();
-      scheduleSave('bookPage');
+      renderBookPages(); scheduleSave('bookPage');
     }
   }
 });
 
-/* ---------- PERSISTENCE / MIGRATION ---------- */
+/* ---------- PERSISTENCE ---------- */
 let _saveTimer=null;
 function scheduleSave(reason){
   if(_saveTimer) clearTimeout(_saveTimer);
@@ -756,7 +732,7 @@ function serialize(){
     minorLoreProgress: state.minorLoreProgress
   };
 }
-function saveState(r){
+function saveState(){
   try{ localStorage.setItem(SAVE_KEY, JSON.stringify(serialize())); }
   catch(e){ console.warn('Save fejl', e); }
 }
@@ -820,10 +796,6 @@ function loadState(){
 }
 
 /* ---------- MANUEL GEM ---------- */
-document.getElementById('save-now').onclick=()=>{
-  saveState('manual');
-  quickSaveToast();
-};
 function quickSaveToast(){
   const t=document.createElement('div');
   t.textContent='Gemt';
@@ -843,17 +815,39 @@ function quickSaveToast(){
 }
 
 /* ---------- INIT ---------- */
-loadState();
-renderProgressBar();
-renderStory();
-renderProfile();
-renderQuests();
-renderActiveQuests();
-switchView(state.currentView);
-checkAchievements('initial');
-scheduleSave('postInit');
+function init(){
+  buildStaticMarkup();
+  loadState();
+  // Knapper
+  const chronBtn=document.getElementById('chronicle-launcher');
+  if(chronBtn) chronBtn.onclick=()=>switchView('chronicle');
+  const backBtn=document.getElementById('back-to-main');
+  if(backBtn) backBtn.onclick=()=>switchView('main');
+  const saveNow=document.getElementById('save-now');
+  if(saveNow) saveNow.onclick=()=>{ saveState('manual'); quickSaveToast(); };
 
-/* ---------- DEBUG ---------- */
+  renderProgressBar();
+  renderStory();
+  renderProfile();
+  renderQuests();
+  renderActiveQuests();
+  switchView(state.currentView);
+  checkAchievements('initial');
+  scheduleSave('postInit');
+
+  window.addEventListener('keydown', e=>{
+    if(e.key==='Escape' && state.currentView==='chronicle') switchView('main');
+  });
+}
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+
+window.addEventListener('beforeunload', ()=>{ try{ saveState('beforeUnload'); }catch(_){ } });
+
+/* ---------- DEBUG HELPERS ---------- */
 window.debugArchetypeXP = function(id, amount=100){
   id=canonicalArchetypeId(id);
   if(!(id in state.archetypeXP)) return;
@@ -874,5 +868,3 @@ window.debugAddXP = function(amount=50){
   renderProgressBar();
   scheduleSave('debugAddXP');
 };
-
-window.addEventListener('beforeunload', ()=>{ try{ saveState('beforeUnload'); }catch(_){ } });
