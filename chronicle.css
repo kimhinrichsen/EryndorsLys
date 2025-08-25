@@ -1,4 +1,6 @@
-/* Basal reset for de nye elementer (juster hvis du har andet globalt) */
+/* Udvidet stylesheet til Krøniken med fold & pagination */
+
+/* Eksisterende base (kan merges, undlad dubletter hvis du allerede har) */
 #chronicle-book-wrapper {
   margin-top: 4rem;
   display: flex;
@@ -6,9 +8,8 @@
   padding: 2rem 1rem 5rem;
   background: linear-gradient(180deg, rgba(15,18,25,0) 0%, rgba(15,18,25,0.6) 30%, rgba(15,18,25,0.85) 100%);
   position: relative;
-  scroll-margin-top: 80px;
+  scroll-margin-top: 90px;
 }
-
 #chronicle-book-wrapper::before {
   content: "";
   position: absolute;
@@ -19,7 +20,6 @@
   opacity: .7;
   pointer-events: none;
 }
-
 .chron-book {
   position: relative;
   display: flex;
@@ -28,9 +28,19 @@
   min-height: 640px;
   filter: drop-shadow(0 10px 18px rgba(0,0,0,0.55));
   font-family: system-ui, Arial, sans-serif;
+  transition: min-height .5s ease, height .5s ease;
 }
-
-/* Bogens "spine" og cover */
+.chron-book--collapsed {
+  min-height: 160px;
+}
+.chron-book--collapsed .chron-book-pages {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+}
 .chron-book-cover {
   width: 220px;
   background: linear-gradient(160deg, #2d2a24 0%, #1f1c17 80%);
@@ -39,33 +49,29 @@
   border-radius: 14px 0 0 14px;
   position: relative;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items:center;
+  justify-content:center;
   padding: 14px;
   box-shadow: inset 0 0 18px rgba(0,0,0,0.6);
+  overflow: hidden;
 }
-
 .chron-book-cover-inner {
   text-align: center;
   color: #e3d4b6;
   font-weight: 600;
   letter-spacing: .5px;
+  position: relative;
+  padding-top: 8px;
 }
-
 .chron-book-title {
   font-size: 1.3rem;
-  display: flex;
-  flex-direction: column;
-  gap: .35rem;
-  align-items: center;
+  display:flex;
+  flex-direction:column;
+  gap:.35rem;
+  align-items:center;
   text-shadow: 0 2px 4px rgba(0,0,0,.5);
 }
-
-.chron-book-icon {
-  font-size: 2.2rem;
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,.35));
-}
-
+.chron-book-icon { font-size:2.3rem; filter:drop-shadow(0 2px 4px rgba(0,0,0,.35)); }
 .chron-book-sub {
   margin-top: .6rem;
   font-size: .8rem;
@@ -75,6 +81,26 @@
   text-transform: uppercase;
 }
 
+/* Fold knap */
+.chron-collapse-btn {
+  position:absolute;
+  top:6px;
+  right:6px;
+  background:#3d3429;
+  color:#e3d4b6;
+  border:1px solid #524636;
+  border-radius:8px;
+  cursor:pointer;
+  padding:4px 10px;
+  font-size:.8rem;
+  font-weight:600;
+  letter-spacing:.5px;
+  box-shadow:0 2px 4px rgba(0,0,0,.4);
+  transition:background .3s, transform .25s;
+}
+.chron-collapse-btn:hover { background:#4b4033; }
+.chron-book--collapsed .chron-collapse-btn { transform:rotate(180deg); }
+
 .chron-book-spine {
   width: 18px;
   background: repeating-linear-gradient(180deg, #3b3228 0 6px, #31281f 6px 12px);
@@ -82,117 +108,128 @@
   border-bottom: 2px solid #3d352b;
   border-left: 2px solid #3d352b;
   box-shadow: inset 0 0 10px rgba(0,0,0,.6);
-  border-radius: 0;
+  border-radius:0;
   position: relative;
 }
-
 .chron-book-pages {
-  flex: 1;
+  flex:1;
   background:
     linear-gradient(90deg, rgba(255,255,255,0.06) 0 1px, transparent 1px 100%),
     linear-gradient(180deg, #fdfaf5 0%, #f2ebdf 100%);
-  background-size: 3px 100%, 100% 100%;
-  position: relative;
-  padding: 1.8rem 2.2rem;
+  background-size:3px 100%,100% 100%;
+  position:relative;
+  padding: 1.8rem 2.2rem 3.4rem;
   border: 2px solid #d2c4af;
   border-left: none;
   border-radius: 0 14px 14px 0;
   color: #2c241b;
-  overflow: hidden;
+  overflow:hidden;
+  transition: opacity .5s ease, transform .5s ease, max-height .5s ease;
 }
-
 .chron-book-pages::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(90deg, rgba(0,0,0,.15), rgba(0,0,0,0) 14%, rgba(0,0,0,0));
-  pointer-events: none;
-  mix-blend-mode: multiply;
-  opacity: .45;
+  content:"";
+  position:absolute;
+  inset:0;
+  background:linear-gradient(90deg, rgba(0,0,0,.15), rgba(0,0,0,0) 14%, rgba(0,0,0,0));
+  pointer-events:none;
+  mix-blend-mode:multiply;
+  opacity:.45;
 }
 
 .chron-page-grid {
-  display: grid;
-  gap: 1.8rem;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  align-content: start;
+  display:grid;
+  gap:1.8rem;
+  grid-template-columns: repeat(auto-fill,minmax(320px,1fr));
+  align-content:start;
+  transition:opacity .3s ease;
 }
-
-.chron-page h2 {
-  margin: 0 0 .75rem;
-  font-size: 1.15rem;
-  font-weight: 700;
-  letter-spacing: .5px;
-  color: #3d2d20;
-  text-shadow: 0 1px 1px #fff;
-}
-
 .chron-page {
-  background: linear-gradient(180deg, #ffffffde, #f3ebdf);
-  border: 1px solid #c8b79f;
-  border-radius: 10px;
-  padding: 1rem 1.1rem 1.2rem;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.08), inset 0 0 0 1px #efe5d7;
-  position: relative;
-  overflow: hidden;
+  background: linear-gradient(180deg,#ffffffde,#f3ebdf);
+  border:1px solid #c8b79f;
+  border-radius:10px;
+  padding:1rem 1.1rem 1.2rem;
+  box-shadow:0 4px 10px rgba(0,0,0,0.08), inset 0 0 0 1px #efe5d7;
+  position:relative;
+  overflow:hidden;
+  opacity:0;
+  transform:translateY(8px);
+  transition:opacity .45s, transform .45s;
+}
+.chron-page--visible {
+  opacity:1;
+  transform:translateY(0);
+}
+.chron-page h2 {
+  margin:0 0 .75rem;
+  font-size:1.15rem;
+  font-weight:700;
+  letter-spacing:.5px;
+  color:#3d2d20;
+  text-shadow:0 1px 1px #fff;
 }
 
-.chron-page::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 85% 15%, rgba(255,255,255,.6), transparent 60%),
-    linear-gradient(120deg, transparent 0 70%, rgba(255,255,255,0.35));
-  mix-blend-mode: screen;
-  pointer-events: none;
-  opacity: .7;
+/* Pagination controls */
+.chron-pagination {
+  position:absolute;
+  bottom:10px;
+  right:14px;
+  display:flex;
+  gap:.8rem;
+  align-items:center;
+  background:rgba(255,255,255,.6);
+  padding:.4rem .8rem;
+  border:1px solid #d2c4af;
+  border-radius:10px;
+  backdrop-filter:blur(4px);
+  font-size:.75rem;
+  box-shadow:0 4px 12px rgba(0,0,0,.15);
 }
+.chron-page-nav {
+  background:#ede3d5;
+  border:1px solid #ccbba2;
+  color:#4a3827;
+  padding:.35rem .7rem;
+  font-size:.75rem;
+  border-radius:6px;
+  cursor:pointer;
+  font-weight:600;
+  letter-spacing:.5px;
+  box-shadow:0 2px 4px rgba(0,0,0,.15);
+  transition:background .25s;
+}
+.chron-page-nav:hover:not(:disabled){ background:#f5efe6; }
+.chron-page-nav:disabled {
+  opacity:.4;
+  cursor:default;
+  filter:grayscale(.4);
+}
+.chron-page-indicator { font-weight:700; letter-spacing:.5px; }
 
-/* Stats sektion */
+/* Stats */
 .chron-stats-summary {
-  display: flex;
-  gap: 1.4rem;
-  flex-wrap: wrap;
-  font-size: .9rem;
-  margin-bottom: .9rem;
+  display:flex; gap:1.4rem; flex-wrap:wrap;
+  font-size:.9rem; margin-bottom:.9rem;
 }
-
 .chron-stats-grid {
-  display: flex;
-  gap: .9rem;
-  flex-wrap: wrap;
+  display:flex; gap:.9rem; flex-wrap:wrap;
 }
-
 .chron-stat-card {
-  background: #f9f3ea;
-  border: 1px solid #d3c3ad;
-  border-radius: 8px;
-  padding: .55rem .7rem .65rem;
-  min-width: 120px;
-  font-size: .75rem;
-  line-height: 1.15rem;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+  background:#f9f3ea; border:1px solid #d3c3ad;
+  border-radius:8px; padding:.55rem .7rem .65rem;
+  min-width:120px; font-size:.75rem; line-height:1.15rem;
+  box-shadow:0 2px 4px rgba(0,0,0,0.06);
 }
-.chron-stat-title {
-  font-weight: 600;
-  margin-bottom: .25rem;
-  font-size: .8rem;
-  color: #3b2a1d;
-}
+.chron-stat-title { font-weight:600; margin-bottom:.25rem; font-size:.8rem; color:#3b2a1d; }
 .chron-stat-line span { opacity:.7; }
 
 /* Achievements */
 .chron-ach-block h3 {
-  margin: .3rem 0 .5rem;
-  font-size: .9rem;
-  color: #402f21;
+  margin:.3rem 0 .5rem;
+  font-size:.9rem;
+  color:#402f21;
 }
 .chron-ach-grid {
-  display:flex;
-  flex-wrap:wrap;
-  gap:.6rem;
+  display:flex; flex-wrap:wrap; gap:.6rem;
 }
 .chron-ach-item {
   background:#f9f3ea;
@@ -214,29 +251,40 @@
 .chron-ach-desc { opacity:.85; }
 .chron-ach-status {
   position:absolute;
-  top:6px;
-  right:8px;
+  top:6px; right:8px;
   font-weight:700;
   font-size:.7rem;
   color:#30753a;
 }
-.chron-ach-item:not(.chron-ach-item--unlocked) .chron-ach-status {
-  color:#888;
-}
+.chron-ach-item:not(.chron-ach-item--unlocked) .chron-ach-status { color:#888; }
 
 /* Completed Quests */
-.chron-quests-tablewrap { max-height:280px; overflow:auto; border:1px solid #e1d5c4; border-radius:6px; background:#fff; }
-.chron-quests-table { width:100%; border-collapse:collapse; font-size:.65rem; }
-.chron-quests-table th {
-  text-align:left; background:#efe4d3; padding:4px 6px; position:sticky; top:0; font-weight:600;
-  font-size:.64rem; letter-spacing:.4px; z-index:2;
+.chron-quests-tablewrap {
+  max-height:280px; overflow:auto;
+  border:1px solid #e1d5c4;
+  border-radius:6px; background:#fff;
 }
-.chron-quests-table td { padding:4px 6px; border-top:1px solid #eadccb; }
-.chron-quests-table td.num { text-align:right; font-variant-numeric: tabular-nums; }
+.chron-quests-table {
+  width:100%; border-collapse:collapse; font-size:.65rem;
+}
+.chron-quests-table th {
+  text-align:left; background:#efe4d3;
+  padding:4px 6px; position:sticky; top:0;
+  font-weight:600; font-size:.64rem; letter-spacing:.4px; z-index:2;
+}
+.chron-quests-table td {
+  padding:4px 6px; border-top:1px solid #eadccb;
+}
+.chron-quests-table td.num {
+  text-align:right; font-variant-numeric:tabular-nums;
+}
 .chron-quests-table tbody tr:nth-child(2n) { background:#fbf7f1; }
 
 /* Lore */
-.chron-lore-list { display:flex; flex-direction:column; gap:.8rem; max-height:300px; overflow:auto; }
+.chron-lore-list {
+  display:flex; flex-direction:column; gap:.8rem;
+  max-height:300px; overflow:auto;
+}
 .chron-lore-item {
   background:#fbf7f1;
   border:1px solid #e0d3c2;
@@ -247,225 +295,28 @@
   position:relative;
 }
 .chron-lore-head {
-  display:flex;
-  justify-content:space-between;
-  font-weight:600;
-  margin-bottom:.35rem;
-  font-size:.7rem;
+  display:flex; justify-content:space-between;
+  font-weight:600; margin-bottom:.35rem; font-size:.7rem;
 }
 .chron-lore-time { opacity:.55; font-weight:400; }
 .chron-lore-major { font-weight:600; margin-bottom:.4rem; font-size:.7rem; color:#352519; }
 .chron-lore-minor { margin:0 0 0 1.1rem; padding:0; list-style:disc; }
 .chron-lore-minor li { margin:0 0 .25rem; }
 
-/* Topbar */
-.kro-topbar {
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  background:#1c2128;
-  color:#ddd;
-  padding:.7rem 1rem;
-  position:sticky;
-  top:0;
-  z-index:300;
-  border-bottom:1px solid #2a3037;
-}
-.kro-topbar-buttons { display:flex; gap:.5rem; }
+/* Achievement toast baseline */
+.kro-achievement-toast strong { color:#9fe6a6; }
 
-/* Knapper */
-.kro-btn {
-  background:#2d4f7c;
-  color:#fff;
-  border:1px solid #3d5f90;
-  padding:.45rem .9rem;
-  font-size:.75rem;
-  cursor:pointer;
-  border-radius:6px;
-  letter-spacing:.3px;
-}
-.kro-btn:hover { background:#396192; }
-.kro-btn-ghost {
-  background:#30363d;
-  border:1px solid #444c55;
-  color:#cfd6de;
-}
-.kro-btn-ghost:hover { background:#3c444c; }
-
-/* Achievement toast (fælles) */
-.kro-achievement-toast { }
-
-/* Mentor overlay just in case */
-#mentor-overlay {
-  position:fixed;
-  inset:0;
-  display:none;
-  align-items:flex-start;
-  justify-content:center;
-  padding-top:5vh;
-  background:rgba(12,14,18,0.75);
-  backdrop-filter:blur(4px);
-  z-index:4000;
-}
-.kro-mentor-overlaybox {
-  background:#1d2127;
-  color:#e5e7ea;
-  width:clamp(320px,70%,880px);
-  max-height:85vh;
-  overflow:auto;
-  border:1px solid #2f363e;
-  border-radius:14px;
-  padding:24px 28px 32px;
-  font-size:.85rem;
-  position:relative;
-  box-shadow:0 14px 40px rgba(0,0,0,.55);
-}
-.kro-mentor-overlay-header {
-  display:flex;
-  align-items:center;
-  gap:.7rem;
-  margin-bottom:.6rem;
-  font-size:1.1rem;
-  font-weight:600;
-}
-.kro-mentor-overlay-icon { font-size:1.6rem; }
-.kro-mentor-background { opacity:.9; line-height:1.3rem; }
-.kro-close {
-  position:absolute;
-  top:10px; right:12px;
-  padding:.3rem .6rem;
-  font-size:.8rem;
-  background:#313a43;
-  border:1px solid #45525e;
-  color:#cfd6de;
-  cursor:pointer;
-}
-.kro-close:hover { background:#3d4750; }
-
-/* XP bar styling (behold eller tilpas) */
-.kro-xp-bar-container {
-  display:flex; align-items:center; gap:.6rem;
-  padding:.6rem .8rem;
-  background:#212830;
-  border:1px solid #2e3741;
-  border-radius:10px;
-  max-width:560px;
-  font-size:.75rem;
-  box-shadow:0 4px 10px rgba(0,0,0,.4);
-}
-.kro-xp-bar {
-  flex:1;
-  height:10px;
-  background:#39434e;
-  border-radius:6px;
-  overflow:hidden;
-  position:relative;
-}
-.kro-xp-bar-fill {
-  height:100%;
-  background:linear-gradient(90deg,#4a7fb9,#79b5e9);
-  box-shadow:0 0 8px #69a4db;
-  transition:width .4s;
-}
-.kro-xp-bar-label { opacity:.85; font-weight:600; }
-.kro-xp-emblem { font-size:1rem; }
-
-.kro-profilbox {
-  margin-top:1.2rem;
-  background:#1e252c;
-  border:1px solid #2d353d;
-  padding:.9rem 1rem;
-  border-radius:10px;
-  max-width:560px;
-  font-size:.8rem;
-  box-shadow:0 4px 12px rgba(0,0,0,.3);
-}
-.kro-mentors-row {
-  display:flex;
-  gap:.6rem;
-  flex-wrap:wrap;
-  margin-top:.9rem;
-}
-.kro-mentorbox {
-  background:#232b33;
-  border:1px solid #313b45;
-  border-radius:8px;
-  padding:.45rem .55rem .55rem;
-  display:flex;
-  flex-direction:column;
-  gap:.4rem;
-  cursor:pointer;
-  min-width:160px;
-  position:relative;
-  font-size:.7rem;
-  box-shadow:0 3px 6px rgba(0,0,0,.25);
-}
-.kro-mentorbox:hover { background:#2a3440; }
-.kro-mentor-main { font-weight:600; display:flex; gap:.4rem; align-items:center; }
-.kro-mentor-progressbar {
-  display:flex; flex-direction:column; gap:.35rem;
-}
-.kro-mentor-emblem { font-size:1rem; }
-.kro-mentor-bar {
-  height:8px;
-  background:#36404a;
-  border-radius:5px;
-  overflow:hidden;
-}
-.kro-mentor-bar-fill {
-  height:100%;
-  background:linear-gradient(90deg,#4c8bc4,#7bc0ee);
-  transition:width .4s;
-}
-.kro-mentor-bar-label { font-size:.65rem; opacity:.85; }
-
-/* Quests */
-.kro-questheader { margin:2.2rem 0 .8rem; font-size:1.1rem; letter-spacing:.5px; }
-.kro-quests { display:flex; flex-direction:column; gap:.7rem; }
-.kro-questroll {
-  background:#222a33;
-  border:1px solid #2d3741;
-  padding:.7rem .8rem .85rem;
-  border-radius:10px;
-  font-size:.7rem;
-  line-height:1.1rem;
-  position:relative;
-  box-shadow:0 4px 10px rgba(0,0,0,.25);
-}
-.kro-questroll b { font-size:.78rem; }
-.kro-questicon {
-  font-size:1.2rem;
-  margin-right:.4rem;
-  filter:drop-shadow(0 2px 4px rgba(0,0,0,.4));
-}
-.kro-questdesc { opacity:.85; margin:.35rem 0 .5rem; }
-.kro-questpts { font-weight:600; font-size:.68rem; letter-spacing:.3px; margin-bottom:.35rem; }
-.kro-quest-progress {
-  display:flex; gap:.55rem; align-items:center; flex-wrap:wrap;
-  margin-bottom:.5rem;
-}
-.kro-quest-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
-
-.kro-btn.kro-drop {
-  background:#4a2d2d;
-  border-color:#613b3b;
-}
-.kro-btn.kro-drop:hover { background:#5b3636; }
-
-/* Achievement toast (færdig) */
-.kro-achievement-toast strong { color:#6fcf70; }
-
-/* Små responsjusteringer */
+/* Responsiv */
 @media (max-width: 900px) {
-  .chron-book {
-    flex-direction:column;
-  }
+  .chron-book { flex-direction:column; min-height:0; }
   .chron-book-cover {
     flex-direction:row;
     width:100%;
     border-right:2px solid #3d352b;
     border-bottom:none;
     border-radius:14px 14px 0 0;
+    justify-content:center;
+    padding:20px 12px 14px;
   }
   .chron-book-spine { display:none; }
   .chron-book-pages {
@@ -476,5 +327,5 @@
   .chron-page-grid { grid-template-columns:1fr; }
 }
 
-/* (Valgfri) Animation keyframes placeholder */
+/* Fade animation */
 @keyframes fadeIn { from{opacity:0} to{opacity:1} }
