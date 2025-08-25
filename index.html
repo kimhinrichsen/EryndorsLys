@@ -2,13 +2,41 @@
 <html lang="da">
 <head>
   <meta charset="UTF-8" />
-  <title>Eryndors Kro</title>
+  <title>Eryndors Lys – Eryndors Kro</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="Eryndors Lys – Et lille progressions- og quest-eventyr i browseren." />
+  <meta name="theme-color" content="#1f2427" />
+
+  <!-- Basis styles -->
   <link rel="stylesheet" href="./styles.css" />
   <link rel="stylesheet" href="./arketype-theme.css" />
+
+  <!-- Ny: styling til profilvalg / avatar / karakterredigering -->
+  <link rel="stylesheet" href="./profile-select.css" />
+
+  <!-- (Valgfri) Ikon / favicon -->
+  <!-- <link rel="icon" type="image/png" href="./favicon.png" /> -->
+
+  <!-- (Valgfri) Manifest hvis du senere vil gøre den installérbar som PWA -->
+  <!-- <link rel="manifest" href="./manifest.json"> -->
 </head>
 <body>
-  <div id="app"><!-- App markup injiceres af app.js --></div>
+  <!-- Root container som app.js skriver ind i -->
+  <div id="app"><!-- App markup injiceres dynamisk af app.js --></div>
+
+  <noscript>
+    <div style="padding:1rem;max-width:600px;margin:2rem auto;font-family:system-ui,Arial,sans-serif;background:#311;border:1px solid #600;color:#fdd;border-radius:8px;">
+      Dette spil kræver JavaScript for at virke. Aktivér JavaScript i din browser.
+    </div>
+  </noscript>
+
+  <!-- Én samlet ES Module: app.js importerer selv story.js, Questgenerator.js, profiles.js, archetypes osv. -->
   <script type="module" src="./app.js"></script>
+
+  <!-- (Valgfri) Simpel global fejl-log (kan fjernes hvis overflødig)
+  <script>
+    window.addEventListener('error', e => console.log('[Global fejl]', e.message));
+  </script>
+  -->
 </body>
 </html>
