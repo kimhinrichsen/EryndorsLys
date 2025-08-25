@@ -486,3 +486,56 @@ body {
   .book-spread::before { display:none !important; }
 }
 /* ===== END GLOBAL CENTER LAYOUT ===== */
+/* === Overlay baggrund for arketype (auto-billede) === */
+.kro-mentor-overlaybox--with-bg {
+  position:relative;
+  overflow:hidden;
+  background:#111; /* fallback hvis billede ikke findes */
+  color:#ffeec0;
+}
+.kro-mentor-overlaybox--with-bg::before {
+  content:"";
+  position:absolute;
+  inset:0;
+  background:
+    linear-gradient(180deg,rgba(0,0,0,0.25),rgba(0,0,0,0.85)),
+    var(--mentor-overlay-bg) center/cover no-repeat;
+  z-index:0;
+  filter:brightness(.9) saturate(1.1);
+}
+.kro-mentor-overlaybox--with-bg > * {
+  position:relative;
+  z-index:1;
+}
+.kro-mentor-overlay-header {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-family:'Cinzel',serif;
+  font-size:1.5rem;
+  margin-bottom:6px;
+  text-shadow:0 0 6px #000;
+}
+.kro-mentor-overlay-spacer {
+  height:10px;
+}
+.kro-mentor-background {
+  font-size:.9rem;
+  line-height:1.3rem;
+  margin:0 0 14px;
+  text-shadow:0 0 4px #000;
+}
+.kro-mentor-quests {
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.kro-mentor-q {
+  background:rgba(0,0,0,0.55);
+  border:1px solid #fffbe822;
+  padding:8px 10px;
+  border-radius:10px;
+  font-size:.75rem;
+  line-height:1.1rem;
+  box-shadow:0 0 6px #0007;
+}
