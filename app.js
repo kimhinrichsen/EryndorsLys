@@ -1,12 +1,7 @@
-/* Eryndors Lys – app.js v7
-   Ændringer i v7:
-   - Alt lore (major + minor) vises som popups
-   - Major og minor er adskilte events (ingen blanding i samme popup)
-   - Kun major arkiveres i Krøniken
-   - Kø-system så popups ikke overlapper
-   - Minor fragmenter unlockes løbende mellem levels
-   - Backfill af historiske major levels uden popup
-   - "Stjernelys" er blot navnet på samlet XP
+/* Eryndors Lys – app.js v7.1
+   - ALT lore (major + minor) som popups (fra v7)
+   - Kun major arkiveres (fra v7)
+   - v7.1: Archetype-specifik baggrund på både major og minor popups
 */
 
 import { storyChapters } from './story.js';
@@ -18,7 +13,7 @@ import {
   getArchetypeImagePath
 } from './archetypes.js';
 
-const SAVE_KEY = 'eryndors_state_v7';
+const SAVE_KEY = 'eryndors_state_v7'; // version uændret (datamodel ikke ændret)
 const SAVE_VERSION = 7;
 const SAVE_DEBOUNCE_MS = 400;
 const MAX_QUESTS_ON_TAVLE = 6;
@@ -30,10 +25,10 @@ const levelEmblems = {1:"🔸",2:"✨",3:"⭐",4:"🌟",5:"🌠"};
 
 const archetypes = archetypesFromRegistry;
 
-/* ---- Konfiguration for visning / arkivering ---- */
+/* ---- Konfiguration ---- */
 const LORE_CONFIG = {
   major: { mode: 'popup', archive: true },
-  minor: { mode: 'popup', archive: false } // minor arkiveres ikke i krøniken
+  minor: { mode: 'popup', archive: false }
 };
 
 /* ---------- XP UTIL ---------- */
@@ -70,15 +65,15 @@ function canonicalArchetypeId(raw){
 const state = {
   v: SAVE_VERSION,
   currentView: 'main',
-  xp: 0, // "Stjernelys"
+  xp: 0,
   archetypeXP: Object.fromEntries(archetypes.map(a=>[a.id,0])),
   active: [],
   completed: [],
   tavleQuests: generateQuestList(MAX_QUESTS_ON_TAVLE),
-  chronicleLore: [],                // Kun major entries
+  chronicleLore: [],
   achievementsUnlocked: new Set(),
   bookPageIndex: 0,
-  minorLoreProgress: {},            // { archetypeId: { [level]: countShown } }
+  minorLoreProgress: {},
   archetypeLevel: Object.fromEntries(archetypes.map(a=>[a.id,1]))
 };
 
@@ -158,7 +153,7 @@ function unlockMajorLore(archetypeId, level){
   }
 }
 
-/* ----- Popup-kø (for at undgå overlap) ----- */
+/* ----- Popup-kø ----- */
 const popupQueue = [];
 let popupActive = false;
 
@@ -182,16 +177,19 @@ function runNextPopup(){
   builder(()=>{ popupActive=false; runNextPopup(); });
 }
 
+/* --- Archetype-specifikt baggrundslag i selve popup-elementet --- */
 function basePopupHtml({title, bodyHtml, archetypeId, variant}){
-  const imgPath = archetypeId ? getArchetypeImagePath(archetypeId) : null;
+  const bgPath = archetypeId ? getArchetypeImagePath(archetypeId) : null;
+  // Inline style med CSS custom property - bruges af CSS til variant gradient + baggrund
+  const bgStyle = bgPath ? `style="--arch-bg:url('${bgPath}');"` : '';
   return `
-  <div class="lore-popup lore-popup-appear ${variant||''}" ${archetypeId?`data-archetype="${archetypeId}"`:''}>
+  <div class="lore-popup lore-popup-appear ${variant||''} ${bgPath?'lore-popup--arch':''}"
+       ${archetypeId?`data-archetype="${archetypeId}"`:''} ${bgStyle}>
     <button class="lp-close" aria-label="Luk">✖</button>
     <div class="lp-top">
       <h2 class="lp-title">${title}</h2>
     </div>
     <div class="lp-body">
-      ${imgPath ? `<div class="lp-bg-media"><img src="${imgPath}" alt="" loading="lazy" decoding="async"></div>`:''}
       ${bodyHtml}
     </div>
     <div class="lp-actions">
@@ -247,7 +245,7 @@ function showMajorLorePopup(archetypeId, level){
   });
 }
 
-/* ----- Minor events (én linje ad gangen) ----- */
+/* ----- Minor events ----- */
 function showMinorLorePopup(archetypeId, level, line){
   if(LORE_CONFIG.minor.mode!=='popup') return;
   const archName = archetypeMap[archetypeId]?.name || archetypeId;
@@ -264,7 +262,6 @@ function maybeUnlockMinorLore(archetypeId){
   const level=calcLevel(xp);
   const lore=getArchetypeLore(archetypeId, level);
   if(!lore || !Array.isArray(lore.minorLore) || !lore.minorLore.length) return;
-  if(LORE_CONFIG.minor.mode==='silent' && !LORE_CONFIG.minor.archive) return; // ingen unlock synligt/arkiv men track?
   const n=lore.minorLore.length;
   const shown=getMinorShownCount(archetypeId, level);
   if(shown>=n) return;
@@ -274,13 +271,8 @@ function maybeUnlockMinorLore(archetypeId){
     if(progress>=threshold){
       setMinorShownCount(archetypeId, level, i);
       scheduleSave('minorLoreUnlock');
-      if(LORE_CONFIG.minor.mode==='popup'){
-        showMinorLorePopup(archetypeId, level, lore.minorLore[i-1]);
-      }
-      // (Ingen arkivering af minor i chronicle)
-    }else{
-      break;
-    }
+      showMinorLorePopup(archetypeId, level, lore.minorLore[i-1]);
+    } else break;
   }
 }
 
@@ -288,14 +280,12 @@ function maybeUnlockMinorLore(archetypeId){
 function handleLevelUpLore(archetypeId, beforeLevel, afterLevel){
   for(let L=beforeLevel+1; L<=afterLevel; L++){
     unlockMajorLore(archetypeId, L);
-    setMinorShownCount(archetypeId, L, 0); // starte minor progress for nyt level
-    if(LORE_CONFIG.major.mode==='popup' && state.currentView==='main'){
-      showMajorLorePopup(archetypeId, L);
-    }
+    setMinorShownCount(archetypeId, L, 0);
+    if(state.currentView==='main') showMajorLorePopup(archetypeId, L);
   }
 }
 
-/* ----- Backfill major ved load ----- */
+/* ----- Backfill major ----- */
 function backfillMajorLore(){
   archetypes.forEach(a=>{
     const xp=state.archetypeXP[a.id];
@@ -303,7 +293,7 @@ function backfillMajorLore(){
     for(let L=2; L<=lvl; L++){
       const key=`${a.id}_${L}`;
       if(!state.chronicleLore.some(e=>e.id===key)){
-        unlockMajorLore(a.id, L);
+        unlockMajorLore(a.id, L); // lydløs
       }
     }
   });
@@ -349,19 +339,18 @@ document.body.innerHTML = `
             </div>
           </div>
           <div class="book-spine"></div>
-            <div class="book-pages">
-              <div class="book-pagination">
-                <button id="book-prev" class="btn mini" title="Forrige">⬅</button>
-                <div class="page-indicator">
-                  <span id="book-page-current">1</span>/<span id="book-page-total">2</span>
-                </div>
-                <button id="book-next" class="btn mini" title="Næste">➡</button>
+          <div class="book-pages">
+            <div class="book-pagination">
+              <button id="book-prev" class="btn mini" title="Forrige">⬅</button>
+              <div class="page-indicator">
+                <span id="book-page-current">1</span>/<span id="book-page-total">2</span>
               </div>
-              <div class="book-spread" id="book-spread"></div>
+              <button id="book-next" class="btn mini" title="Næste">➡</button>
             </div>
+            <div class="book-spread" id="book-spread"></div>
+          </div>
         </div>
       </div>
-
     </div>
   </div>
 `;
@@ -564,9 +553,7 @@ function renderActiveQuests(){
           id:quest.id, name:quest.name, archetype:quest.archetype,
           xp:quest.xp, type:quest.type, levelRequirement:quest.level, completedAt:Date.now()
         });
-        // Total / Stjernelys
         state.xp += quest.xp;
-        // Archetype
         const aId=canonicalArchetypeId(quest.archetype);
         if(aId && state.archetypeXP[aId]!=null){
           const before=calcLevel(state.archetypeXP[aId]);
@@ -575,7 +562,6 @@ function renderActiveQuests(){
           if(after>before){
             handleLevelUpLore(aId, before, after);
           } else {
-            // Minor thresholds
             maybeUnlockMinorLore(aId);
           }
           state.archetypeLevel[aId]=after;
@@ -615,7 +601,6 @@ const BOOK_PAGE_PAIR = [
   ['stats','achievements'],
   ['completed','lore']
 ];
-
 function renderBookPages(){
   const spread=document.getElementById('book-spread');
   if(!spread) return;
@@ -663,16 +648,16 @@ function renderStatsPage(){
 function renderAchievementsPage(){
   const unlocked=[],locked=[];
   achievementDefs.forEach(d=> state.achievementsUnlocked.has(d.id)?unlocked.push(d):locked.push(d));
-  function section(label, arr, isOk){
+  function section(label, arr, ok){
     if(!arr.length) return '';
     return `<div class="ach-block">
       <h4>${label}</h4>
       <div class="ach-grid">
         ${arr.map(a=>`
-          <div class="ach-item ${isOk?'unlocked':''}">
+          <div class="ach-item ${ok?'unlocked':''}">
             <div class="ach-item-title">${a.title}</div>
             <div class="ach-item-desc">${a.desc}</div>
-            <div class="ach-item-status">${isOk?'✓':'Låst'}</div>
+            <div class="ach-item-status">${ok?'✓':'Låst'}</div>
           </div>`).join('')}
       </div>
     </div>`;
@@ -775,7 +760,6 @@ function saveState(r){
   try{ localStorage.setItem(SAVE_KEY, JSON.stringify(serialize())); }
   catch(e){ console.warn('Save fejl', e); }
 }
-
 function migrateOlderKeys(){
   const oldKeys=['eryndors_state_v6','eryndors_state_v5','eryndors_state_v4','eryndors_state_v3','eryndors_state_v2','eryndors_state_v1'];
   for(const k of oldKeys){
@@ -798,13 +782,11 @@ function migrateOlderKeys(){
       if(Array.isArray(d.chronicleLore)) state.chronicleLore=d.chronicleLore.map(e=>{ if(e?.archetypeId) e.archetypeId=canonicalArchetypeId(e.archetypeId); return e; });
       if(Array.isArray(d.achievementsUnlocked)) state.achievementsUnlocked=new Set(d.achievementsUnlocked);
       if(typeof d.bookPageIndex==='number') state.bookPageIndex=d.bookPageIndex;
-      // Minor progress ikke tidligere -> start tom
       return true;
     }catch(e){ console.warn('Migration fejl', k, e); }
   }
   return false;
 }
-
 function loadState(){
   try{
     const raw=localStorage.getItem(SAVE_KEY);
@@ -827,7 +809,6 @@ function loadState(){
     } else {
       migrateOlderKeys();
     }
-    // Canonicalize
     [...state.active, ...state.tavleQuests, ...state.completed].forEach(q=>{
       if(q?.archetype) q.archetype=canonicalArchetypeId(q.archetype);
     });
@@ -835,9 +816,7 @@ function loadState(){
       state.archetypeLevel[a.id]=calcLevel(state.archetypeXP[a.id]);
     });
     backfillMajorLore();
-  }catch(e){
-    console.warn('Load fejl', e);
-  }
+  }catch(e){ console.warn('Load fejl', e); }
 }
 
 /* ---------- MANUEL GEM ---------- */
@@ -874,11 +853,7 @@ switchView(state.currentView);
 checkAchievements('initial');
 scheduleSave('postInit');
 
-/* ---------- DEBUG HELPERS ---------- */
-window.debugAddXP = function(amount=50){
-  state.xp += amount;
-  renderProgressBar(); renderStory(); scheduleSave('debugAddXP');
-};
+/* ---------- DEBUG ---------- */
 window.debugArchetypeXP = function(id, amount=100){
   id=canonicalArchetypeId(id);
   if(!(id in state.archetypeXP)) return;
@@ -893,6 +868,11 @@ window.debugArchetypeXP = function(id, amount=100){
   state.archetypeLevel[id]=after;
   renderProfile();
   scheduleSave('debugArchetypeXP');
+};
+window.debugAddXP = function(amount=50){
+  state.xp += amount;
+  renderProgressBar();
+  scheduleSave('debugAddXP');
 };
 
 window.addEventListener('beforeunload', ()=>{ try{ saveState('beforeUnload'); }catch(_){ } });
