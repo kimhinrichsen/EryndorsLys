@@ -1,14 +1,6 @@
-/* Eryndors Lys – app.js (Forside + separat Krønike-side)
-   Features:
-   - Separat "chronicle" view (stats, achievements, completed quests, lore) åbnes via bog-ikon nederst på forsiden
-   - Forsiden tilbage til enkelt layout uden krønikedata
-   - Centrering af alt indhold (max-width shell)
-   - Pagination i krønikken (2 sektioner/opslag)
-   - Pulserende bog-ikon (kan fjernes ved at droppe .pulse class)
-   - LocalStorage persistence (v4) inkl. currentView
-   - ESC i krønikke-view vender tilbage til main
-   - Level-up lore popup og achievement toast kun på main
-   - Canonical normalisering af arketype-id'er
+/* Eryndors Lys – app.js
+   Separat Krønike "bog"-view + centreret forside
+   v5
 */
 
 import { storyChapters } from './story.js';
@@ -16,18 +8,21 @@ import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
 import { archetypes as archetypesFromRegistry, archetypeMap, getArchetypeLore } from './archetypes.js';
 
 /* ---------- KONSTANTER ---------- */
-const SAVE_KEY = 'eryndors_state_v4';
+const SAVE_KEY = 'eryndors_state_v5';
 const SAVE_DEBOUNCE_MS = 400;
 const MAX_QUESTS_ON_TAVLE = 6;
 const XP_BASE = 50;
 const XP_EXPONENT = 1.25;
 const levelEmblems = {1:"🔸",2:"✨",3:"⭐",4:"🌟",5:"🌠"};
-const CHRON_SECTIONS = ['stats','achievements','completed','lore'];
-const CHRON_PER_VIEW = 2;
+const BOOK_SECTIONS = ['stats','achievements','completed','lore'];
+const BOOK_PAGE_PAIR = [
+  ['stats','achievements'],
+  ['completed','lore']
+]; // 2 “opslag” – let udvide senere
 
 const archetypes = archetypesFromRegistry;
 
-/* ---------- XP / LEVEL HELPERS ---------- */
+/* ---------- XP HELPERS ---------- */
 function xpRequiredForLevel(l){ return Math.floor(XP_BASE * Math.pow(l, XP_EXPONENT)); }
 function xpForLevel(l){ let x=0; for(let i=1;i<l;i++) x+=xpRequiredForLevel(i); return x; }
 function calcLevel(x, max=100){ for(let L=1;L<max;L++){ if(x < xpForLevel(L+1)) return L; } return max; }
@@ -48,7 +43,7 @@ const state = {
   tavleQuests: generateQuestList(MAX_QUESTS_ON_TAVLE),
   chronicleLore: [],
   achievementsUnlocked: new Set(),
-  chroniclePage: 0
+  bookPageIndex: 0
 };
 
 /* ---------- CANONICAL ARKETYPE ID ---------- */
@@ -78,9 +73,7 @@ const achievementDefs = [
   {id:'ten_quests', title:'Ti i Tasken', desc:'Gennemfør 10 quests', check:()=>state.completed.length>=10},
   {id:'total_xp_500', title:'Stjernelys 500', desc:'Opnå 500 samlet XP', check:()=>state.xp>=500},
   ...archetypes.map(a=>({
-    id:`archetype_lvl_3_${a.id}`,
-    title:`${a.name} III`,
-    desc:`Nå level 3 med ${a.name}`,
+    id:`archetype_lvl_3_${a.id}`, title:`${a.name} III`, desc:`Nå level 3 med ${a.name}`,
     check:()=>calcLevel(state.archetypeXP[a.id])>=3
   }))
 ];
@@ -91,11 +84,11 @@ function checkAchievements(reason){
     if(!state.achievementsUnlocked.has(def.id) && def.check()){
       state.achievementsUnlocked.add(def.id);
       newly.push(def);
-      if(state.currentView === 'main') showAchievementToast(def);
+      if(state.currentView==='main') showAchievementToast(def);
     }
   }
   if(newly.length){
-    if(state.currentView === 'chronicle') renderChronicleView();
+    if(state.currentView==='chronicle') renderBookPages(); // opdater
     scheduleSave(reason||'achievements');
   }
 }
@@ -123,14 +116,16 @@ function showAchievementToast(def){
   },4600);
 }
 
-/* ---------- LORE / LEVEL-UP ---------- */
+/* ---------- LORE ---------- */
 function unlockLoreOrFallback(archetypeId, level){
   const lore = getArchetypeLore(archetypeId, level);
   if(!lore){
     if(state.currentView==='main'){
       showLorePopup({
         archetypeName: archetypeMap[archetypeId]?.name || archetypeId,
-        level, majorLore:'(Ingen lore endnu – men du steg i niveau!)', minorLore:[]
+        level,
+        majorLore:'(Ingen lore endnu – men du steg i niveau!)',
+        minorLore:[]
       });
     }
     return;
@@ -167,23 +162,15 @@ function showLorePopup(entry){
     document.body.appendChild(container);
   }
   const wrap=document.createElement('div');
-  wrap.style.cssText=`
-    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
-    background:rgba(15,18,25,0.55);backdrop-filter:blur(4px);pointer-events:auto;z-index:5001;
-  `;
+  wrap.style.cssText='position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(15,18,25,.55);backdrop-filter:blur(4px);pointer-events:auto;z-index:5001;';
   wrap.innerHTML=`
-    <div style="background:#1f252c;color:#f1f5f7;max-width:560px;width:clamp(300px,70%,560px);
-      border:1px solid #32404d;border-radius:18px;padding:26px 30px;
-      font:14px/1.48 system-ui,Arial,sans-serif;position:relative;
-      box-shadow:0 10px 40px -4px rgba(0,0,0,.55); animation:fadeIn .25s;">
-      <button id="close-lore-popup" style="position:absolute;top:12px;right:14px;background:#2c3640;color:#c9d2d9;
-        border:1px solid #44525e;border-radius:6px;cursor:pointer;padding:4px 8px;font-size:12px;">✖</button>
-      <h2 style="margin:0 0 10px;font-size:21px;">${entry.archetypeName} – Level ${entry.level}</h2>
-      <p style="margin:0 0 16px;font-weight:600;">${entry.majorLore}</p>
-      ${entry.minorLore.length?`<ul style="margin:0 0 18px 20px;padding:0;">${entry.minorLore.map(m=>`<li>${m}</li>`).join('')}</ul>`:''}
-      <div style="text-align:right;">
-        <button id="dismiss-lore" style="background:#346296;color:#fff;border:1px solid #4476ae;border-radius:8px;
-          padding:7px 16px;cursor:pointer;font-size:13px;font-weight:600;">Luk</button>
+    <div class="lore-popup">
+      <button id="close-lore-popup" class="lp-close">✖</button>
+      <h2>${entry.archetypeName} – Level ${entry.level}</h2>
+      <p class="lp-major">${entry.majorLore}</p>
+      ${entry.minorLore.length?`<ul class="lp-minor">${entry.minorLore.map(m=>`<li>${m}</li>`).join('')}</ul>`:''}
+      <div class="lp-actions">
+        <button id="dismiss-lore" class="btn primary">Luk</button>
       </div>
     </div>`;
   container.appendChild(wrap);
@@ -192,25 +179,25 @@ function showLorePopup(entry){
   wrap.querySelector('#dismiss-lore').onclick=close;
 }
 
-/* ---------- DOM SKELETON (TWO VIEWS) ---------- */
+/* ---------- DOM SKELETON (2 VIEWS) ---------- */
 document.body.innerHTML = `
   <div id="main-view" class="view">
     <div class="app-shell">
       <header class="top-header">
         <h1 class="kro-header">🍻 Eryndors Kro</h1>
       </header>
-      <section id="progressbar"></section>
-      <section id="story"></section>
-      <section id="profile"></section>
-      <section id="quests"></section>
-      <section id="activequests"></section>
+      <section id="progressbar" class="center-block"></section>
+      <section id="story" class="center-block"></section>
+      <section id="profile" class="center-block"></section>
+      <section id="quests" class="center-block"></section>
+      <section id="activequests" class="center-block"></section>
     </div>
-    <div id="mentor-overlay" style="display:none;"></div>
-    <div id="lore-popup-container" style="position:fixed;inset:0;pointer-events:none;z-index:5000;"></div>
     <button id="chronicle-launcher" class="chronicle-launch pulse" title="Åbn Krøniken">
       <span class="icon">📖</span>
       <span class="label">Krøniken</span>
     </button>
+    <div id="mentor-overlay" style="display:none;"></div>
+    <div id="lore-popup-container" style="position:fixed;inset:0;pointer-events:none;z-index:5000;"></div>
   </div>
 
   <div id="chronicle-view" class="view" style="display:none;">
@@ -222,55 +209,64 @@ document.body.innerHTML = `
           <button id="save-now" class="btn ghost">💾 Gem</button>
         </div>
       </header>
-      <div class="chron-paginationbar">
-        <button id="chron-prev" class="btn mini" title="Forrige">⬅</button>
-        <div class="pager-indicator"><span id="chron-page-current">1</span>/<span id="chron-page-total">2</span></div>
-        <button id="chron-next" class="btn mini" title="Næste">➡</button>
+
+      <div class="book-wrapper">
+        <div class="book">
+          <div class="book-cover">
+            <div class="book-cover-inner">
+              <div class="book-logo">📖</div>
+              <div class="book-brand">Eryndors Lys</div>
+            </div>
+          </div>
+          <div class="book-spine"></div>
+          <div class="book-pages">
+            <div class="book-pagination">
+              <button id="book-prev" class="btn mini" title="Forrige">⬅</button>
+              <div class="page-indicator">
+                <span id="book-page-current">1</span>/<span id="book-page-total">2</span>
+              </div>
+              <button id="book-next" class="btn mini" title="Næste">➡</button>
+            </div>
+            <div class="book-spread" id="book-spread">
+              <!-- Dynamisk indhold (2 pages) -->
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="chron-content">
-        <section class="chron-section" data-chron="stats">
-          <h3>Stats</h3>
-          <div id="chron-stats"></div>
-        </section>
-        <section class="chron-section" data-chron="achievements">
-          <h3>Achievements</h3>
-          <div id="chron-achievements"></div>
-        </section>
-        <section class="chron-section" data-chron="completed">
-          <h3>Gennemførte Quests</h3>
-          <div id="chron-completed"></div>
-        </section>
-        <section class="chron-section" data-chron="lore">
-          <h3>Lore</h3>
-          <div id="chron-lore"></div>
-        </section>
-      </div>
+
     </div>
   </div>
 `;
 
-/* ---------- VIEW SWITCH ---------- */
-function switchView(view){
-  if(view === state.currentView) return;
-  state.currentView = view;
-  document.getElementById('main-view').style.display = view==='main' ? '' : 'none';
-  document.getElementById('chronicle-view').style.display = view==='chronicle' ? '' : 'none';
+/* ---------- VIEW SWITCH & SCROLL LOCK ---------- */
+function setBodyScrollLock(view){
   if(view==='chronicle'){
-    renderChronicleView();
+    document.documentElement.classList.add('lock-scroll');
+    document.body.classList.add('lock-scroll');
+  } else {
+    document.documentElement.classList.remove('lock-scroll');
+    document.body.classList.remove('lock-scroll');
+  }
+}
+function switchView(view){
+  state.currentView = view;
+  const main = document.getElementById('main-view');
+  const chron = document.getElementById('chronicle-view');
+  if(main) main.style.display = view==='main' ? '' : 'none';
+  if(chron) chron.style.display = view==='chronicle' ? '' : 'none';
+  setBodyScrollLock(view);
+  if(view==='chronicle'){
+    renderBookPages();
   }
   scheduleSave('switchView');
 }
 document.getElementById('chronicle-launcher').onclick = () => switchView('chronicle');
 document.getElementById('back-to-main').onclick = () => switchView('main');
-
-/* ESC fra Krønikken */
 window.addEventListener('keydown', e=>{
-  if(e.key === 'Escape' && state.currentView==='chronicle'){
-    switchView('main');
-  }
+  if(e.key==='Escape' && state.currentView==='chronicle') switchView('main');
 });
 
-/* ---------- RENDER MAIN VIEW ---------- */
+/* ---------- MAIN RENDER ---------- */
 function renderProgressBar(){
   const L=calcLevel(state.xp), p=calcProgress(state.xp);
   document.getElementById('progressbar').innerHTML=`
@@ -280,7 +276,6 @@ function renderProgressBar(){
       <span class="kro-xp-bar-label">Level ${L} / XP: ${state.xp - xpForLevel(L)} / ${xpRequiredForLevel(L)}</span>
     </div>`;
 }
-
 function renderStory(){
   const idx=Math.max(0, Math.min(storyChapters.length-1, getCurrentStoryChapter()));
   const chapter=storyChapters[idx];
@@ -290,7 +285,6 @@ function renderStory(){
       <div class="kro-storybody">${chapter.text}</div>
     </div>`;
 }
-
 function renderProfile(){
   const div=document.getElementById('profile');
   div.innerHTML=`
@@ -314,7 +308,6 @@ function renderProfile(){
     </div>`;
   div.querySelectorAll('[data-mentor]').forEach(el=> el.onclick=()=>showMentorOverlay(el.getAttribute('data-mentor')));
 }
-
 function showMentorOverlay(id){
   id=canonicalArchetypeId(id);
   const mentor=archetypes.find(a=>a.id===id);
@@ -354,14 +347,12 @@ function showMentorOverlay(id){
   overlay.style.display='flex';
   overlay.querySelector('#close-mentor-overlay').onclick=()=>{ overlay.style.display='none'; overlay.innerHTML=''; };
 }
-
 function refillTavleQuests(){
   while(state.tavleQuests.length < MAX_QUESTS_ON_TAVLE){
     const n=generateQuestList(1)[0];
     if(n){ n.archetype = canonicalArchetypeId(n.archetype); state.tavleQuests.push(n); }
   }
 }
-
 function renderQuests(){
   refillTavleQuests();
   const div=document.getElementById('quests');
@@ -403,7 +394,6 @@ function renderQuests(){
     };
   });
 }
-
 function renderActiveQuests(){
   const div=document.getElementById('activequests');
   div.innerHTML=`<h2 class="kro-questheader">🎒 Aktive quests</h2><div class="kro-quests"></div>`;
@@ -480,135 +470,167 @@ function renderActiveQuests(){
   });
 }
 
-/* ---------- KRØNIKE VIEW RENDER ---------- */
-function renderChronicleView(){
-  renderChronStats();
-  renderChronAchievements();
-  renderChronCompleted();
-  renderChronLore();
-  updateChronPagination();
+/* ---------- BOOK (KRØNIKE) RENDER ---------- */
+function renderBookPages(){
+  const spread = document.getElementById('book-spread');
+  if(!spread) return;
+  const totalPages = BOOK_PAGE_PAIR.length;
+  if(state.bookPageIndex >= totalPages) state.bookPageIndex = totalPages-1;
+
+  document.getElementById('book-page-total').textContent = totalPages;
+  document.getElementById('book-page-current').textContent = state.bookPageIndex+1;
+
+  const pair = BOOK_PAGE_PAIR[state.bookPageIndex];
+
+  spread.innerHTML = pair.map(sectionId => renderBookPage(sectionId)).join('');
+
+  // Knaptilstand
+  const prev = document.getElementById('book-prev');
+  const next = document.getElementById('book-next');
+  prev.disabled = state.bookPageIndex===0;
+  next.disabled = state.bookPageIndex===totalPages-1;
 }
 
-function renderChronStats(){
-  const el=document.getElementById('chron-stats');
+function renderBookPage(id){
+  switch(id){
+    case 'stats': return renderStatsPage();
+    case 'achievements': return renderAchievementsPage();
+    case 'completed': return renderCompletedPage();
+    case 'lore': return renderLorePage();
+    default: return `<div class="book-page"><h3>Ukendt</h3></div>`;
+  }
+}
+
+function renderStatsPage(){
   const total=state.completed.length;
-  const by={};
-  archetypes.forEach(a=>{
+  const by=archetypes.map(a=>{
     const count=state.completed.filter(q=>q.archetype===a.id).length;
-    by[a.id]={name:a.name,count,level:calcLevel(state.archetypeXP[a.id])};
+    return { name:a.name, count, level:calcLevel(state.archetypeXP[a.id]) };
   });
-  el.innerHTML=`
-    <div class="stats-summary">
-      <div><b>Total XP:</b> ${state.xp}</div>
-      <div><b>Gennemførte quests:</b> ${total}</div>
+  return `
+    <div class="book-page book-page--stats">
+      <h3>Stats</h3>
+      <div class="stats-summary">
+        <div><b>Total XP:</b> ${state.xp}</div>
+        <div><b>Gennemførte quests:</b> ${total}</div>
+      </div>
+      <div class="stats-grid">
+        ${by.map(o=>`
+          <div class="stat-card">
+            <div class="stat-title">${o.name}</div>
+            <div class="stat-line"><span>Quests:</span> <b>${o.count}</b></div>
+            <div class="stat-line"><span>Level:</span> <b>${o.level}</b></div>
+          </div>
+        `).join('')}
+      </div>
     </div>
-    <div class="stats-grid">
-      ${Object.values(by).map(o=>`
-        <div class="stat-card">
-          <div class="stat-title">${o.name}</div>
-          <div class="stat-line"><span>Quests:</span> <b>${o.count}</b></div>
-          <div class="stat-line"><span>Level:</span> <b>${o.level}</b></div>
-        </div>`).join('')}
-    </div>`;
+  `;
 }
 
-function renderChronAchievements(){
-  const el=document.getElementById('chron-achievements');
+function renderAchievementsPage(){
   const unlocked=[], locked=[];
   achievementDefs.forEach(d=> state.achievementsUnlocked.has(d.id)?unlocked.push(d):locked.push(d));
-  function section(title, arr, ok){
+  function section(label, arr, open){
     if(!arr.length) return '';
     return `
       <div class="ach-block">
-        <h4>${title}</h4>
+        <h4>${label}</h4>
         <div class="ach-grid">
           ${arr.map(a=>`
-            <div class="ach-item ${ok?'unlocked':''}">
+            <div class="ach-item ${open?'unlocked':''}">
               <div class="ach-item-title">${a.title}</div>
               <div class="ach-item-desc">${a.desc}</div>
-              <div class="ach-item-status">${ok?'✓':'Låst'}</div>
-            </div>`).join('')}
+              <div class="ach-item-status">${open?'✓':'Låst'}</div>
+            </div>
+          `).join('')}
         </div>
-      </div>`;
+      </div>
+    `;
   }
-  el.innerHTML = section('Åbnet', unlocked, true) + section('Låste', locked, false);
+  return `
+    <div class="book-page book-page--achievements">
+      <h3>Achievements</h3>
+      ${section('Åbnet', unlocked, true)}
+      ${section('Låste', locked, false)}
+    </div>
+  `;
 }
 
-function renderChronCompleted(){
-  const el=document.getElementById('chron-completed');
-  if(!state.completed.length){ el.innerHTML='<em>Ingen endnu.</em>'; return; }
+function renderCompletedPage(){
+  if(!state.completed.length){
+    return `<div class="book-page book-page--completed">
+      <h3>Gennemførte Quests</h3>
+      <em>Ingen endnu.</em>
+    </div>`;
+  }
   const list=[...state.completed].sort((a,b)=>b.completedAt - a.completedAt);
-  el.innerHTML=`
-    <div class="qtable-wrap">
-      <table class="qtable">
-        <thead>
-          <tr><th>Navn</th><th>Arketype</th><th>XP</th><th>Req lvl</th><th>Type</th><th>Tidspunkt</th></tr>
-        </thead>
-        <tbody>
-          ${list.map(q=>`
-            <tr>
-              <td>${q.name}</td>
-              <td>${archetypeMap[q.archetype]?.name||q.archetype||''}</td>
-              <td class="num">${q.xp}</td>
-              <td class="num">${q.levelRequirement ?? ''}</td>
-              <td>${q.type||''}</td>
-              <td>${new Date(q.completedAt).toLocaleString()}</td>
-            </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`;
+  return `
+    <div class="book-page book-page--completed">
+      <h3>Gennemførte Quests</h3>
+      <div class="qtable-wrap">
+        <table class="qtable">
+          <thead>
+            <tr><th>Navn</th><th>Arketype</th><th>XP</th><th>Req lvl</th><th>Type</th><th>Tid</th></tr>
+          </thead>
+          <tbody>
+            ${list.map(q=>`
+              <tr>
+                <td>${q.name}</td>
+                <td>${archetypeMap[q.archetype]?.name||q.archetype||''}</td>
+                <td class="num">${q.xp}</td>
+                <td class="num">${q.levelRequirement ?? ''}</td>
+                <td>${q.type||''}</td>
+                <td>${new Date(q.completedAt).toLocaleString()}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
-function renderChronLore(){
-  const el=document.getElementById('chron-lore');
-  if(!state.chronicleLore.length){ el.innerHTML='<em>Ingen lore endnu.</em>'; return; }
-  const list=[...state.chronicleLore].sort((a,b)=>b.ts-a.ts);
-  el.innerHTML=`
-    <div class="lore-list">
-      ${list.map(entry=>`
-        <div class="lore-item">
-          <div class="lore-head">
-            <span class="lore-title">${entry.archetypeName} – Level ${entry.level}</span>
-            <span class="lore-time">${new Date(entry.ts).toLocaleTimeString()}</span>
+function renderLorePage(){
+  if(!state.chronicleLore.length){
+    return `<div class="book-page book-page--lore"><h3>Lore</h3><em>Ingen lore endnu.</em></div>`;
+  }
+  const list=[...state.chronicleLore].sort((a,b)=>b.ts - a.ts);
+  return `
+    <div class="book-page book-page--lore">
+      <h3>Lore</h3>
+      <div class="lore-list">
+        ${list.map(entry=>`
+          <div class="lore-item">
+            <div class="lore-head">
+              <span class="lore-title">${entry.archetypeName} – Level ${entry.level}</span>
+              <span class="lore-time">${new Date(entry.ts).toLocaleTimeString()}</span>
+            </div>
+            <div class="lore-major">${entry.majorLore}</div>
+            ${entry.minorLore.length?`<ul class="lore-minor">${entry.minorLore.map(m=>`<li>${m}</li>`).join('')}</ul>`:''}
           </div>
-          <div class="lore-major">${entry.majorLore}</div>
-          ${entry.minorLore.length?`<ul class="lore-minor">${entry.minorLore.map(m=>`<li>${m}</li>`).join('')}</ul>`:''}
-        </div>
-      `).join('')}
-    </div>`;
+        `).join('')}
+      </div>
+    </div>
+  `;
 }
 
-/* ---------- KRØNIKE PAGINATION ---------- */
-function updateChronPagination(){
-  const totalViews = Math.ceil(CHRON_SECTIONS.length / CHRON_PER_VIEW);
-  if(state.chroniclePage >= totalViews) state.chroniclePage = totalViews-1;
-  document.getElementById('chron-page-total').textContent = totalViews;
-  document.getElementById('chron-page-current').textContent = state.chroniclePage + 1;
-  const start = state.chroniclePage * CHRON_PER_VIEW;
-  const end = start + CHRON_PER_VIEW;
-
-  document.querySelectorAll('#chronicle-view [data-chron]').forEach(sec=>{
-    const id=sec.getAttribute('data-chron');
-    const idx=CHRON_SECTIONS.indexOf(id);
-    if(idx>=start && idx<end){
-      sec.style.display='';
-      requestAnimationFrame(()=>{ sec.classList.add('show'); });
-    } else {
-      sec.style.display='none';
-      sec.classList.remove('show');
+/* ---------- BOOK NAV ---------- */
+document.addEventListener('click', e=>{
+  if(e.target.id==='book-prev'){
+    if(state.bookPageIndex>0){
+      state.bookPageIndex--;
+      renderBookPages();
+      scheduleSave('bookPage');
     }
-  });
-
-  document.getElementById('chron-prev').disabled = state.chroniclePage===0;
-  document.getElementById('chron-next').disabled = state.chroniclePage>=totalViews-1;
-}
-document.getElementById('chron-prev').onclick=()=>{
-  if(state.chroniclePage>0){ state.chroniclePage--; updateChronPagination(); scheduleSave('chronPage'); }
-};
-document.getElementById('chron-next').onclick=()=>{
-  const totalViews=Math.ceil(CHRON_SECTIONS.length/CHRON_PER_VIEW);
-  if(state.chroniclePage<totalViews-1){ state.chroniclePage++; updateChronPagination(); scheduleSave('chronPage'); }
-};
+  }
+  if(e.target.id==='book-next'){
+    if(state.bookPageIndex < BOOK_PAGE_PAIR.length-1){
+      state.bookPageIndex++;
+      renderBookPages();
+      scheduleSave('bookPage');
+    }
+  }
+});
 
 /* ---------- PERSISTENCE ---------- */
 let _saveTimer=null;
@@ -618,7 +640,7 @@ function scheduleSave(reason){
 }
 function serialize(){
   return {
-    v:4,
+    v:5,
     currentView: state.currentView,
     xp: state.xp,
     archetypeXP: state.archetypeXP,
@@ -628,42 +650,37 @@ function serialize(){
     tavleQuests: state.tavleQuests,
     chronicleLore: state.chronicleLore,
     achievementsUnlocked: [...state.achievementsUnlocked],
-    chroniclePage: state.chroniclePage
+    bookPageIndex: state.bookPageIndex
   };
 }
-function saveState(reason){
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(serialize()));
-    console.log('[SAVE]', reason);
-  } catch(e){ console.warn('Save fejl:', e); }
+function saveState(r){
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(serialize())); }
+  catch(e){ console.warn('Save fejl', e); }
 }
 function loadState(){
-  try {
+  try{
     const raw=localStorage.getItem(SAVE_KEY);
     if(!raw) return;
     const data=JSON.parse(raw);
-    if(!data || data.v!==4) return;
+    if(!data || data.v!==5) return;
     state.currentView = data.currentView || 'main';
     state.xp = data.xp ?? state.xp;
-    if(data.archetypeXP) Object.assign(state.archetypeXP, data.archetypeXP);
-    if(data.archetypeLevel) Object.assign(state.archetypeLevel, data.archetypeLevel);
-    if(Array.isArray(data.active)) state.active = data.active;
-    if(Array.isArray(data.completed)) state.completed = data.completed;
-    if(Array.isArray(data.tavleQuests)) state.tavleQuests = data.tavleQuests;
-    if(Array.isArray(data.chronicleLore)) state.chronicleLore = data.chronicleLore;
-    if(Array.isArray(data.achievementsUnlocked)) state.achievementsUnlocked = new Set(data.achievementsUnlocked);
-    state.chroniclePage = data.chroniclePage || 0;
-
-    // Canonical fix
+    Object.assign(state.archetypeXP, data.archetypeXP||{});
+    Object.assign(state.archetypeLevel, data.archetypeLevel||{});
+    if(Array.isArray(data.active)) state.active=data.active;
+    if(Array.isArray(data.completed)) state.completed=data.completed;
+    if(Array.isArray(data.tavleQuests)) state.tavleQuests=data.tavleQuests;
+    if(Array.isArray(data.chronicleLore)) state.chronicleLore=data.chronicleLore;
+    if(Array.isArray(data.achievementsUnlocked)) state.achievementsUnlocked=new Set(data.achievementsUnlocked);
+    if(typeof data.bookPageIndex==='number') state.bookPageIndex=data.bookPageIndex;
     [...state.active, ...state.tavleQuests, ...state.completed].forEach(q=>{
-      if(q && q.archetype) q.archetype = canonicalArchetypeId(q.archetype);
+      if(q && q.archetype) q.archetype=canonicalArchetypeId(q.archetype);
     });
-    console.log('[LOAD] OK');
-  } catch(e){ console.warn('Load fejl:', e); }
+  }catch(e){ console.warn('Load fejl', e); }
 }
 
-/* ---------- MANUEL GEM KNAP ---------- */
-document.getElementById('save-now').onclick = ()=>{
+/* ---------- MANUEL GEM ---------- */
+document.getElementById('save-now').onclick=()=>{
   saveState('manual');
   quickSaveToast();
 };
@@ -672,11 +689,9 @@ function quickSaveToast(){
   t.textContent='Gemt';
   Object.assign(t.style,{
     position:'fixed',bottom:'1rem',right:'1rem',
-    background:'#25313b',color:'#cfe9f7',
-    padding:'8px 14px',border:'1px solid #3c5564',
-    borderRadius:'8px',font:'12px/1 system-ui,Arial,sans-serif',
-    boxShadow:'0 4px 12px rgba(0,0,0,.45)',
-    zIndex:9999,opacity:'0',transform:'translateY(6px)',
+    background:'#25313b',color:'#cfe9f7',padding:'8px 14px',
+    border:'1px solid #3c5564',borderRadius:'8px',font:'12px/1 system-ui,Arial,sans-serif',
+    boxShadow:'0 4px 12px rgba(0,0,0,.45)',zIndex:9999,opacity:'0',transform:'translateY(6px)',
     transition:'opacity .35s, transform .35s'
   });
   document.body.appendChild(t);
@@ -687,21 +702,14 @@ function quickSaveToast(){
   },1300);
 }
 
-/* ---------- INITIALISERING ---------- */
+/* ---------- INIT ---------- */
 loadState();
-
 renderProgressBar();
 renderStory();
 renderProfile();
 renderQuests();
 renderActiveQuests();
-
-if(state.currentView==='chronicle'){
-  switchView('chronicle'); // render chronicle view
-} else {
-  switchView('main'); // ensure correct display
-}
-
+switchView(state.currentView);
 checkAchievements('initial');
 scheduleSave('postInit');
 
@@ -716,11 +724,10 @@ window.debugLevelUp = function(id, boost=60){
   state.archetypeLevel[id]=after;
   checkAchievements('debugLevel');
   renderProfile();
-  if(state.currentView==='chronicle') renderChronicleView();
+  if(state.currentView==='chronicle') renderBookPages();
   scheduleSave('debugLevelUp');
 };
 
-/* ---------- ON UNLOAD ---------- */
 window.addEventListener('beforeunload', ()=> {
   try { saveState('beforeUnload'); } catch(_){}
 });
