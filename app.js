@@ -1,4 +1,13 @@
-/* Eryndors Lys – app.js (udgave med forbedret lore-popup + single-line mentors) */
+/* Eryndors Lys – app.js v7
+   Ændringer i v7:
+   - Alt lore (major + minor) vises som popups
+   - Major og minor er adskilte events (ingen blanding i samme popup)
+   - Kun major arkiveres i Krøniken
+   - Kø-system så popups ikke overlapper
+   - Minor fragmenter unlockes løbende mellem levels
+   - Backfill af historiske major levels uden popup
+   - "Stjernelys" er blot navnet på samlet XP
+*/
 
 import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
@@ -9,23 +18,25 @@ import {
   getArchetypeImagePath
 } from './archetypes.js';
 
-console.log('KRONIKE_DIAG v5.3 – init (lore-popup upgrade)');
-
-const SAVE_KEY = 'eryndors_state_v5';
+const SAVE_KEY = 'eryndors_state_v7';
+const SAVE_VERSION = 7;
 const SAVE_DEBOUNCE_MS = 400;
 const MAX_QUESTS_ON_TAVLE = 6;
+
 const XP_BASE = 50;
 const XP_EXPONENT = 1.25;
+
 const levelEmblems = {1:"🔸",2:"✨",3:"⭐",4:"🌟",5:"🌠"};
-const BOOK_SECTIONS = ['stats','achievements','completed','lore'];
-const BOOK_PAGE_PAIR = [
-  ['stats','achievements'],
-  ['completed','lore']
-];
 
 const archetypes = archetypesFromRegistry;
 
-/* ---------- XP HELPERS ---------- */
+/* ---- Konfiguration for visning / arkivering ---- */
+const LORE_CONFIG = {
+  major: { mode: 'popup', archive: true },
+  minor: { mode: 'popup', archive: false } // minor arkiveres ikke i krøniken
+};
+
+/* ---------- XP UTIL ---------- */
 function xpRequiredForLevel(l){ return Math.floor(XP_BASE * Math.pow(l, XP_EXPONENT)); }
 function xpForLevel(l){ let x=0; for(let i=1;i<l;i++) x+=xpRequiredForLevel(i); return x; }
 function calcLevel(x, max=100){ for(let L=1;L<max;L++){ if(x < xpForLevel(L+1)) return L; } return max; }
@@ -34,20 +45,6 @@ function calcProgress(x, max=100){
   return Math.min((x-b)/(n-b),1);
 }
 function getCurrentStoryChapter(){ return calcLevel(state.xp)-1; }
-
-/* ---------- STATE ---------- */
-const state = {
-  currentView: 'main',
-  xp: 0,
-  archetypeXP: Object.fromEntries(archetypes.map(a=>[a.id,0])),
-  archetypeLevel: Object.fromEntries(archetypes.map(a=>[a.id,1])),
-  active: [],
-  completed: [],
-  tavleQuests: generateQuestList(MAX_QUESTS_ON_TAVLE),
-  chronicleLore: [],
-  achievementsUnlocked: new Set(),
-  bookPageIndex: 0
-};
 
 /* ---------- CANONICAL ARKETYPE ID ---------- */
 const _canonIdx = (() => {
@@ -68,7 +65,22 @@ function canonicalArchetypeId(raw){
   const n=_canonIdx.norm(raw);
   return _canonIdx.map[n] || raw;
 }
-state.tavleQuests.forEach(q=> q.archetype = canonicalArchetypeId(q.archetype));
+
+/* ---------- STATE ---------- */
+const state = {
+  v: SAVE_VERSION,
+  currentView: 'main',
+  xp: 0, // "Stjernelys"
+  archetypeXP: Object.fromEntries(archetypes.map(a=>[a.id,0])),
+  active: [],
+  completed: [],
+  tavleQuests: generateQuestList(MAX_QUESTS_ON_TAVLE),
+  chronicleLore: [],                // Kun major entries
+  achievementsUnlocked: new Set(),
+  bookPageIndex: 0,
+  minorLoreProgress: {},            // { archetypeId: { [level]: countShown } }
+  archetypeLevel: Object.fromEntries(archetypes.map(a=>[a.id,1]))
+};
 
 /* ---------- ACHIEVEMENTS ---------- */
 const achievementDefs = [
@@ -119,22 +131,20 @@ function showAchievementToast(def){
   },4600);
 }
 
-/* ---------- LORE (OPDATERET) ---------- */
-function unlockLoreOrFallback(archetypeId, level){
-  const lore = getArchetypeLore(archetypeId, level);
+/* ---------- LORE PROGRESS ---------- */
+function getMinorShownCount(archetypeId, level){
+  return state.minorLoreProgress[archetypeId]?.[level] || 0;
+}
+function setMinorShownCount(archetypeId, level, count){
+  if(!state.minorLoreProgress[archetypeId]) state.minorLoreProgress[archetypeId]={};
+  state.minorLoreProgress[archetypeId][level]=count;
+}
+
+function unlockMajorLore(archetypeId, level){
+  if(!LORE_CONFIG.major.archive) return;
+  const lore=getArchetypeLore(archetypeId, level);
+  if(!lore) return;
   const archName = archetypeMap[archetypeId]?.name || archetypeId;
-  if(!lore){
-    if(state.currentView==='main'){
-      showLorePopup({
-        archetypeId,
-        archetypeName: archName,
-        level,
-        majorLore:'(Ingen lore endnu – men du steg i niveau!)',
-        minorLore:[]
-      });
-    }
-    return;
-  }
   const key=`${archetypeId}_${level}`;
   if(!state.chronicleLore.some(e=>e.id===key)){
     state.chronicleLore.push({
@@ -143,80 +153,158 @@ function unlockLoreOrFallback(archetypeId, level){
       archetypeName: archName,
       level,
       majorLore:lore.majorLore,
-      minorLore:lore.minorLore||[],
       ts:Date.now()
     });
   }
-  if(state.currentView==='main'){
-    showLorePopup({
-      archetypeId,
-      archetypeName: archName,
-      level,
-      majorLore:lore.majorLore,
-      minorLore:lore.minorLore||[]
-    });
-  }
-  scheduleSave('loreUnlock');
 }
 
-function showLorePopup(entry){
-  const imgPath = entry.archetypeId ? getArchetypeImagePath(entry.archetypeId) : null;
+/* ----- Popup-kø (for at undgå overlap) ----- */
+const popupQueue = [];
+let popupActive = false;
 
-  let container=document.getElementById('lore-popup-container');
-  if(!container){
-    container=document.createElement('div');
-    container.id='lore-popup-container';
-    container.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:5000;';
-    document.body.appendChild(container);
+function ensurePopupContainer(){
+  if(!document.getElementById('lore-popup-container')){
+    const c=document.createElement('div');
+    c.id='lore-popup-container';
+    c.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:5000;';
+    document.body.appendChild(c);
   }
+}
 
-  const wrap=document.createElement('div');
-  wrap.className='lore-overlay-wrap';
-  wrap.innerHTML=`
-    <div class="lore-popup lore-popup-appear" ${entry.archetypeId?`data-archetype="${entry.archetypeId}"`:''}>
-      <button id="close-lore-popup" class="lp-close" aria-label="Luk">✖</button>
-      <div class="lp-top">
-        <h2 class="lp-title">
-          <span class="lp-ornament">✦</span>
-          ${entry.archetypeName} – Level ${entry.level}
-          <span class="lp-ornament">✦</span>
-        </h2>
-      </div>
-      <div class="lp-body">
-        ${imgPath ? `
-          <div class="lp-bg-media">
-            <img src="${imgPath}" alt="" loading="lazy" decoding="async">
-          </div>` : '' }
-        <p class="lp-major">${entry.majorLore}</p>
-        ${entry.minorLore && entry.minorLore.length
-          ? `<ul class="lp-minor">${entry.minorLore.map(m=>`<li>${m}</li>`).join('')}</ul>`
-          : ''
-        }
-      </div>
-      <div class="lp-actions">
-        <button id="dismiss-lore" class="btn primary lp-ok-btn">Fortsæt</button>
-      </div>
-    </div>`;
-  container.appendChild(wrap);
+function enqueuePopup(builder){
+  popupQueue.push(builder);
+  if(!popupActive) runNextPopup();
+}
+function runNextPopup(){
+  if(!popupQueue.length){ popupActive=false; return; }
+  popupActive=true;
+  const builder = popupQueue.shift();
+  builder(()=>{ popupActive=false; runNextPopup(); });
+}
 
-  const popup = wrap.querySelector('.lore-popup');
-  void popup.offsetWidth; // reflow til animation
+function basePopupHtml({title, bodyHtml, archetypeId, variant}){
+  const imgPath = archetypeId ? getArchetypeImagePath(archetypeId) : null;
+  return `
+  <div class="lore-popup lore-popup-appear ${variant||''}" ${archetypeId?`data-archetype="${archetypeId}"`:''}>
+    <button class="lp-close" aria-label="Luk">✖</button>
+    <div class="lp-top">
+      <h2 class="lp-title">${title}</h2>
+    </div>
+    <div class="lp-body">
+      ${imgPath ? `<div class="lp-bg-media"><img src="${imgPath}" alt="" loading="lazy" decoding="async"></div>`:''}
+      ${bodyHtml}
+    </div>
+    <div class="lp-actions">
+      <button class="btn primary lp-ok-btn">Fortsæt</button>
+    </div>
+  </div>`;
+}
 
-  const close=()=>{
-    popup.classList.remove('lore-popup-appear');
-    popup.classList.add('lore-popup-leave');
-    wrap.classList.add('lore-overlay-fade');
-    setTimeout(()=>wrap.remove(), 320);
-  };
-  wrap.querySelector('#close-lore-popup').onclick=close;
-  wrap.querySelector('#dismiss-lore').onclick=close;
-  wrap.addEventListener('mousedown', e=>{
-    if(e.target===wrap) close();
+function queuePopup({title, archetypeId, bodyHtml, variant}){
+  enqueuePopup(done=>{
+    ensurePopupContainer();
+    const container=document.getElementById('lore-popup-container');
+    const wrap=document.createElement('div');
+    wrap.className='lore-overlay-wrap';
+    wrap.innerHTML=basePopupHtml({title, bodyHtml, archetypeId, variant});
+    container.appendChild(wrap);
+    const popup=wrap.querySelector('.lore-popup');
+    void popup.offsetWidth;
+    const close=()=>{
+      popup.classList.remove('lore-popup-appear');
+      popup.classList.add('lore-popup-leave');
+      wrap.classList.add('lore-overlay-fade');
+      setTimeout(()=>{
+        wrap.remove();
+        done();
+      },310);
+    };
+    wrap.querySelector('.lp-close').onclick=close;
+    wrap.querySelector('.lp-ok-btn').onclick=close;
+    wrap.addEventListener('mousedown', e=>{
+      if(e.target===wrap) close();
+    });
+    window.addEventListener('keydown', function esc(e){
+      if(e.key==='Escape'){
+        close();
+        window.removeEventListener('keydown', esc);
+      }
+    });
   });
-  window.addEventListener('keydown', function esc(e){
-    if(e.key==='Escape'){
-      close();
-      window.removeEventListener('keydown', esc);
+}
+
+/* ----- Major events ----- */
+function showMajorLorePopup(archetypeId, level){
+  if(LORE_CONFIG.major.mode!=='popup') return;
+  const lore=getArchetypeLore(archetypeId, level);
+  if(!lore) return;
+  const archName = archetypeMap[archetypeId]?.name || archetypeId;
+  queuePopup({
+    title: `${archName} – Level ${level}`,
+    archetypeId,
+    variant:'lore-popup--major',
+    bodyHtml:`<p class="lp-major">${lore.majorLore}</p>`
+  });
+}
+
+/* ----- Minor events (én linje ad gangen) ----- */
+function showMinorLorePopup(archetypeId, level, line){
+  if(LORE_CONFIG.minor.mode!=='popup') return;
+  const archName = archetypeMap[archetypeId]?.name || archetypeId;
+  queuePopup({
+    title: `${archName} – Fragment (Lvl ${level})`,
+    archetypeId,
+    variant:'lore-popup--minor',
+    bodyHtml:`<p class="lp-minor-frag">${line}</p>`
+  });
+}
+
+function maybeUnlockMinorLore(archetypeId){
+  const xp=state.archetypeXP[archetypeId];
+  const level=calcLevel(xp);
+  const lore=getArchetypeLore(archetypeId, level);
+  if(!lore || !Array.isArray(lore.minorLore) || !lore.minorLore.length) return;
+  if(LORE_CONFIG.minor.mode==='silent' && !LORE_CONFIG.minor.archive) return; // ingen unlock synligt/arkiv men track?
+  const n=lore.minorLore.length;
+  const shown=getMinorShownCount(archetypeId, level);
+  if(shown>=n) return;
+  const progress=calcProgress(xp);
+  for(let i=shown+1;i<=n;i++){
+    const threshold=i/(n+1);
+    if(progress>=threshold){
+      setMinorShownCount(archetypeId, level, i);
+      scheduleSave('minorLoreUnlock');
+      if(LORE_CONFIG.minor.mode==='popup'){
+        showMinorLorePopup(archetypeId, level, lore.minorLore[i-1]);
+      }
+      // (Ingen arkivering af minor i chronicle)
+    }else{
+      break;
+    }
+  }
+}
+
+/* ----- Level-up håndtering ----- */
+function handleLevelUpLore(archetypeId, beforeLevel, afterLevel){
+  for(let L=beforeLevel+1; L<=afterLevel; L++){
+    unlockMajorLore(archetypeId, L);
+    setMinorShownCount(archetypeId, L, 0); // starte minor progress for nyt level
+    if(LORE_CONFIG.major.mode==='popup' && state.currentView==='main'){
+      showMajorLorePopup(archetypeId, L);
+    }
+  }
+}
+
+/* ----- Backfill major ved load ----- */
+function backfillMajorLore(){
+  archetypes.forEach(a=>{
+    const xp=state.archetypeXP[a.id];
+    const lvl=calcLevel(xp);
+    for(let L=2; L<=lvl; L++){
+      const key=`${a.id}_${L}`;
+      if(!state.chronicleLore.some(e=>e.id===key)){
+        unlockMajorLore(a.id, L);
+      }
     }
   });
 }
@@ -269,8 +357,7 @@ document.body.innerHTML = `
                 </div>
                 <button id="book-next" class="btn mini" title="Næste">➡</button>
               </div>
-              <div class="book-spread" id="book-spread">
-              </div>
+              <div class="book-spread" id="book-spread"></div>
             </div>
         </div>
       </div>
@@ -291,30 +378,26 @@ function setBodyScrollLock(view){
 }
 function switchView(view){
   state.currentView = view;
-  const main = document.getElementById('main-view');
-  const chron = document.getElementById('chronicle-view');
-  if(main) main.style.display = view==='main' ? '' : 'none';
-  if(chron) chron.style.display = view==='chronicle' ? '' : 'none';
+  document.getElementById('main-view').style.display = view==='main' ? '' : 'none';
+  document.getElementById('chronicle-view').style.display = view==='chronicle' ? '' : 'none';
   setBodyScrollLock(view);
-  if(view==='chronicle'){
-    renderBookPages();
-  }
+  if(view==='chronicle') renderBookPages();
   scheduleSave('switchView');
 }
-document.getElementById('chronicle-launcher').onclick = () => switchView('chronicle');
-document.getElementById('back-to-main').onclick = () => switchView('main');
+document.getElementById('chronicle-launcher').onclick=()=>switchView('chronicle');
+document.getElementById('back-to-main').onclick=()=>switchView('main');
 window.addEventListener('keydown', e=>{
   if(e.key==='Escape' && state.currentView==='chronicle') switchView('main');
 });
 
-/* ---------- MAIN RENDER ---------- */
+/* ---------- RENDERING ---------- */
 function renderProgressBar(){
   const L=calcLevel(state.xp), p=calcProgress(state.xp);
   document.getElementById('progressbar').innerHTML=`
     <div class="kro-xp-bar-container">
       <span class="kro-xp-emblem">${levelEmblems[L]||''}</span>
       <div class="kro-xp-bar"><div class="kro-xp-bar-fill" style="width:${Math.round(p*100)}%"></div></div>
-      <span class="kro-xp-bar-label">Level ${L} / XP: ${state.xp - xpForLevel(L)} / ${xpRequiredForLevel(L)}</span>
+      <span class="kro-xp-bar-label">Level ${L} / Stjernelys: ${state.xp - xpForLevel(L)} / ${xpRequiredForLevel(L)}</span>
     </div>`;
 }
 function renderStory(){
@@ -358,7 +441,7 @@ function showMentorOverlay(id){
   const overlay=document.getElementById('mentor-overlay');
   const mentorQuests = state.tavleQuests.concat(state.active).filter(q=>q.archetype===id && !q.completed);
   const xp=state.archetypeXP[id], lv=calcLevel(xp);
-  const imgPath = getArchetypeImagePath(id);
+  const imgPath=getArchetypeImagePath(id);
   overlay.innerHTML=`
     <div class="kro-mentor-overlaybox kro-mentor-overlaybox--with-bg" style="--mentor-overlay-bg:url('${imgPath}')">
       <button class="kro-btn kro-close" id="close-mentor-overlay">✖</button>
@@ -397,7 +480,10 @@ function showMentorOverlay(id){
 function refillTavleQuests(){
   while(state.tavleQuests.length < MAX_QUESTS_ON_TAVLE){
     const n=generateQuestList(1)[0];
-    if(n){ n.archetype = canonicalArchetypeId(n.archetype); state.tavleQuests.push(n); }
+    if(n){
+      n.archetype=canonicalArchetypeId(n.archetype);
+      state.tavleQuests.push(n);
+    }
   }
 }
 function renderQuests(){
@@ -478,13 +564,20 @@ function renderActiveQuests(){
           id:quest.id, name:quest.name, archetype:quest.archetype,
           xp:quest.xp, type:quest.type, levelRequirement:quest.level, completedAt:Date.now()
         });
+        // Total / Stjernelys
         state.xp += quest.xp;
+        // Archetype
         const aId=canonicalArchetypeId(quest.archetype);
         if(aId && state.archetypeXP[aId]!=null){
           const before=calcLevel(state.archetypeXP[aId]);
           state.archetypeXP[aId]+=quest.xp;
           const after=calcLevel(state.archetypeXP[aId]);
-          for(let L=before+1; L<=after; L++) unlockLoreOrFallback(aId, L);
+          if(after>before){
+            handleLevelUpLore(aId, before, after);
+          } else {
+            // Minor thresholds
+            maybeUnlockMinorLore(aId);
+          }
           state.archetypeLevel[aId]=after;
         }
         state.active.splice(idx,1);
@@ -517,25 +610,24 @@ function renderActiveQuests(){
   });
 }
 
-/* ---------- BOOK (KRØNIKE) RENDER ---------- */
+/* ---------- KRØNIKE ---------- */
+const BOOK_PAGE_PAIR = [
+  ['stats','achievements'],
+  ['completed','lore']
+];
+
 function renderBookPages(){
-  const spread = document.getElementById('book-spread');
+  const spread=document.getElementById('book-spread');
   if(!spread) return;
-  const totalPages = BOOK_PAGE_PAIR.length;
-  if(state.bookPageIndex >= totalPages) state.bookPageIndex = totalPages-1;
-
-  document.getElementById('book-page-total').textContent = totalPages;
-  document.getElementById('book-page-current').textContent = state.bookPageIndex+1;
-
-  const pair = BOOK_PAGE_PAIR[state.bookPageIndex];
-  spread.innerHTML = pair.map(sectionId => renderBookPage(sectionId)).join('');
-
-  const prev = document.getElementById('book-prev');
-  const next = document.getElementById('book-next');
-  prev.disabled = state.bookPageIndex===0;
-  next.disabled = state.bookPageIndex===totalPages-1;
+  const totalPages=BOOK_PAGE_PAIR.length;
+  if(state.bookPageIndex>=totalPages) state.bookPageIndex=totalPages-1;
+  document.getElementById('book-page-total').textContent=totalPages;
+  document.getElementById('book-page-current').textContent=state.bookPageIndex+1;
+  const pair=BOOK_PAGE_PAIR[state.bookPageIndex];
+  spread.innerHTML=pair.map(p=>renderBookPage(p)).join('');
+  document.getElementById('book-prev').disabled = state.bookPageIndex===0;
+  document.getElementById('book-next').disabled = state.bookPageIndex===totalPages-1;
 }
-
 function renderBookPage(id){
   switch(id){
     case 'stats': return renderStatsPage();
@@ -545,10 +637,9 @@ function renderBookPage(id){
     default: return `<div class="book-page"><h3>Ukendt</h3></div>`;
   }
 }
-
 function renderStatsPage(){
   const total=state.completed.length;
-  const by=archetypes.map(a=>{
+  const rows=archetypes.map(a=>{
     const count=state.completed.filter(q=>q.archetype===a.id).length;
     return { name:a.name, count, level:calcLevel(state.archetypeXP[a.id]) };
   });
@@ -556,107 +647,89 @@ function renderStatsPage(){
     <div class="book-page book-page--stats">
       <h3>Stats</h3>
       <div class="stats-summary">
-        <div><b>Total XP:</b> ${state.xp}</div>
+        <div><b>Total Stjernelys:</b> ${state.xp}</div>
         <div><b>Gennemførte quests:</b> ${total}</div>
       </div>
       <div class="stats-grid">
-        ${by.map(o=>`
+        ${rows.map(r=>`
           <div class="stat-card">
-            <div class="stat-title">${o.name}</div>
-            <div class="stat-line"><span>Quests:</span> <b>${o.count}</b></div>
-            <div class="stat-line"><span>Level:</span> <b>${o.level}</b></div>
-          </div>
-        `).join('')}
+            <div class="stat-title">${r.name}</div>
+            <div class="stat-line"><span>Quests:</span> <b>${r.count}</b></div>
+            <div class="stat-line"><span>Level:</span> <b>${r.level}</b></div>
+          </div>`).join('')}
       </div>
-    </div>
-  `;
+    </div>`;
 }
-
 function renderAchievementsPage(){
-  const unlocked=[], locked=[];
+  const unlocked=[],locked=[];
   achievementDefs.forEach(d=> state.achievementsUnlocked.has(d.id)?unlocked.push(d):locked.push(d));
-  function section(label, arr, open){
+  function section(label, arr, isOk){
     if(!arr.length) return '';
-    return `
-      <div class="ach-block">
-        <h4>${label}</h4>
-        <div class="ach-grid">
-          ${arr.map(a=>`
-            <div class="ach-item ${open?'unlocked':''}">
-              <div class="ach-item-title">${a.title}</div>
-              <div class="ach-item-desc">${a.desc}</div>
-              <div class="ach-item-status">${open?'✓':'Låst'}</div>
-            </div>
-          `).join('')}
-        </div>
+    return `<div class="ach-block">
+      <h4>${label}</h4>
+      <div class="ach-grid">
+        ${arr.map(a=>`
+          <div class="ach-item ${isOk?'unlocked':''}">
+            <div class="ach-item-title">${a.title}</div>
+            <div class="ach-item-desc">${a.desc}</div>
+            <div class="ach-item-status">${isOk?'✓':'Låst'}</div>
+          </div>`).join('')}
       </div>
-    `;
+    </div>`;
   }
-  return `
-    <div class="book-page book-page--achievements">
-      <h3>Achievements</h3>
-      ${section('Åbnet', unlocked, true)}
-      ${section('Låste', locked, false)}
-    </div>
-  `;
+  return `<div class="book-page book-page--achievements">
+    <h3>Achievements</h3>
+    ${section('Åbnet', unlocked, true)}
+    ${section('Låste', locked, false)}
+  </div>`;
 }
-
 function renderCompletedPage(){
   if(!state.completed.length){
     return `<div class="book-page book-page--completed">
-      <h3>Gennemførte Quests</h3>
-      <em>Ingen endnu.</em>
+      <h3>Gennemførte Quests</h3><em>Ingen endnu.</em>
     </div>`;
   }
   const list=[...state.completed].sort((a,b)=>b.completedAt - a.completedAt);
-  return `
-    <div class="book-page book-page--completed">
-      <h3>Gennemførte Quests</h3>
-      <div class="qtable-wrap">
-        <table class="qtable">
-          <thead>
-            <tr><th>Navn</th><th>Arketype</th><th>XP</th><th>Req lvl</th><th>Type</th><th>Tid</th></tr>
-          </thead>
-          <tbody>
-            ${list.map(q=>`
-              <tr>
-                <td>${q.name}</td>
-                <td>${archetypeMap[q.archetype]?.name||q.archetype||''}</td>
-                <td class="num">${q.xp}</td>
-                <td class="num">${q.levelRequirement ?? ''}</td>
-                <td>${q.type||''}</td>
-                <td>${new Date(q.completedAt).toLocaleString()}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
+  return `<div class="book-page book-page--completed">
+    <h3>Gennemførte Quests</h3>
+    <div class="qtable-wrap">
+      <table class="qtable">
+        <thead>
+          <tr><th>Navn</th><th>Arketype</th><th>XP</th><th>Req lvl</th><th>Type</th><th>Tid</th></tr>
+        </thead>
+        <tbody>
+          ${list.map(q=>`
+            <tr>
+              <td>${q.name}</td>
+              <td>${archetypeMap[q.archetype]?.name||q.archetype||''}</td>
+              <td class="num">${q.xp}</td>
+              <td class="num">${q.levelRequirement ?? ''}</td>
+              <td>${q.type||''}</td>
+              <td>${new Date(q.completedAt).toLocaleString()}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
     </div>
-  `;
+  </div>`;
 }
-
 function renderLorePage(){
   if(!state.chronicleLore.length){
     return `<div class="book-page book-page--lore"><h3>Lore</h3><em>Ingen lore endnu.</em></div>`;
   }
   const list=[...state.chronicleLore].sort((a,b)=>b.ts - a.ts);
-  return `
-    <div class="book-page book-page--lore">
-      <h3>Lore</h3>
-      <div class="lore-list">
-        ${list.map(entry=>`
-          <div class="lore-item">
-            <div class="lore-head">
-              <span class="lore-title">${entry.archetypeName} – Level ${entry.level}</span>
-              <span class="lore-time">${new Date(entry.ts).toLocaleTimeString()}</span>
-            </div>
-            <div class="lore-major">${entry.majorLore}</div>
-            ${entry.minorLore.length?`<ul class="lore-minor">${entry.minorLore.map(m=>`<li>${m}</li>`).join('')}</ul>`:''}
+  return `<div class="book-page book-page--lore">
+    <h3>Lore (Major)</h3>
+    <div class="lore-list">
+      ${list.map(e=>`
+        <div class="lore-item">
+          <div class="lore-head">
+            <span class="lore-title">${e.archetypeName} – Level ${e.level}</span>
+            <span class="lore-time">${new Date(e.ts).toLocaleTimeString()}</span>
           </div>
-        `).join('')}
-      </div>
+          <div class="lore-major">${e.majorLore}</div>
+        </div>`).join('')}
     </div>
-  `;
+  </div>`;
 }
 
 /* ---------- BOOK NAV ---------- */
@@ -669,7 +742,7 @@ document.addEventListener('click', e=>{
     }
   }
   if(e.target.id==='book-next'){
-    if(state.bookPageIndex < BOOK_PAGE_PAIR.length-1){
+    if(state.bookPageIndex<BOOK_PAGE_PAIR.length-1){
       state.bookPageIndex++;
       renderBookPages();
       scheduleSave('bookPage');
@@ -677,7 +750,7 @@ document.addEventListener('click', e=>{
   }
 });
 
-/* ---------- PERSISTENCE ---------- */
+/* ---------- PERSISTENCE / MIGRATION ---------- */
 let _saveTimer=null;
 function scheduleSave(reason){
   if(_saveTimer) clearTimeout(_saveTimer);
@@ -685,43 +758,86 @@ function scheduleSave(reason){
 }
 function serialize(){
   return {
-    v:5,
+    v: SAVE_VERSION,
     currentView: state.currentView,
     xp: state.xp,
     archetypeXP: state.archetypeXP,
-    archetypeLevel: state.archetypeLevel,
     active: state.active,
     completed: state.completed,
     tavleQuests: state.tavleQuests,
     chronicleLore: state.chronicleLore,
     achievementsUnlocked: [...state.achievementsUnlocked],
-    bookPageIndex: state.bookPageIndex
+    bookPageIndex: state.bookPageIndex,
+    minorLoreProgress: state.minorLoreProgress
   };
 }
 function saveState(r){
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(serialize())); }
+  try{ localStorage.setItem(SAVE_KEY, JSON.stringify(serialize())); }
   catch(e){ console.warn('Save fejl', e); }
 }
+
+function migrateOlderKeys(){
+  const oldKeys=['eryndors_state_v6','eryndors_state_v5','eryndors_state_v4','eryndors_state_v3','eryndors_state_v2','eryndors_state_v1'];
+  for(const k of oldKeys){
+    const raw=localStorage.getItem(k);
+    if(!raw) continue;
+    try{
+      const d=JSON.parse(raw);
+      if(!d) continue;
+      console.log('[MIGRATION] Importerer', k);
+      if(typeof d.xp==='number') state.xp=d.xp;
+      if(d.archetypeXP){
+        for(const aId in d.archetypeXP){
+          const can=canonicalArchetypeId(aId);
+          if(state.archetypeXP[can]!=null) state.archetypeXP[can]=d.archetypeXP[aId];
+        }
+      }
+      if(Array.isArray(d.active)) state.active=d.active.map(q=>{ if(q?.archetype) q.archetype=canonicalArchetypeId(q.archetype); return q; });
+      if(Array.isArray(d.completed)) state.completed=d.completed.map(q=>{ if(q?.archetype) q.archetype=canonicalArchetypeId(q.archetype); return q; });
+      if(Array.isArray(d.tavleQuests)) state.tavleQuests=d.tavleQuests.map(q=>{ if(q?.archetype) q.archetype=canonicalArchetypeId(q.archetype); return q; });
+      if(Array.isArray(d.chronicleLore)) state.chronicleLore=d.chronicleLore.map(e=>{ if(e?.archetypeId) e.archetypeId=canonicalArchetypeId(e.archetypeId); return e; });
+      if(Array.isArray(d.achievementsUnlocked)) state.achievementsUnlocked=new Set(d.achievementsUnlocked);
+      if(typeof d.bookPageIndex==='number') state.bookPageIndex=d.bookPageIndex;
+      // Minor progress ikke tidligere -> start tom
+      return true;
+    }catch(e){ console.warn('Migration fejl', k, e); }
+  }
+  return false;
+}
+
 function loadState(){
   try{
     const raw=localStorage.getItem(SAVE_KEY);
-    if(!raw) return;
-    const data=JSON.parse(raw);
-    if(!data || data.v!==5) return;
-    state.currentView = data.currentView || 'main';
-    state.xp = data.xp ?? state.xp;
-    Object.assign(state.archetypeXP, data.archetypeXP||{});
-    Object.assign(state.archetypeLevel, data.archetypeLevel||{});
-    if(Array.isArray(data.active)) state.active=data.active;
-    if(Array.isArray(data.completed)) state.completed=data.completed;
-    if(Array.isArray(data.tavleQuests)) state.tavleQuests=data.tavleQuests;
-    if(Array.isArray(data.chronicleLore)) state.chronicleLore=data.chronicleLore;
-    if(Array.isArray(data.achievementsUnlocked)) state.achievementsUnlocked=new Set(data.achievementsUnlocked);
-    if(typeof data.bookPageIndex==='number') state.bookPageIndex=data.bookPageIndex;
+    if(raw){
+      const data=JSON.parse(raw);
+      if(data?.v===SAVE_VERSION){
+        state.currentView=data.currentView||'main';
+        state.xp=data.xp ?? state.xp;
+        Object.assign(state.archetypeXP, data.archetypeXP||{});
+        if(Array.isArray(data.active)) state.active=data.active;
+        if(Array.isArray(data.completed)) state.completed=data.completed;
+        if(Array.isArray(data.tavleQuests)) state.tavleQuests=data.tavleQuests;
+        if(Array.isArray(data.chronicleLore)) state.chronicleLore=data.chronicleLore;
+        if(Array.isArray(data.achievementsUnlocked)) state.achievementsUnlocked=new Set(data.achievementsUnlocked);
+        if(typeof data.bookPageIndex==='number') state.bookPageIndex=data.bookPageIndex;
+        if(data.minorLoreProgress) state.minorLoreProgress=data.minorLoreProgress;
+      } else {
+        migrateOlderKeys();
+      }
+    } else {
+      migrateOlderKeys();
+    }
+    // Canonicalize
     [...state.active, ...state.tavleQuests, ...state.completed].forEach(q=>{
-      if(q && q.archetype) q.archetype=canonicalArchetypeId(q.archetype);
+      if(q?.archetype) q.archetype=canonicalArchetypeId(q.archetype);
     });
-  }catch(e){ console.warn('Load fejl', e); }
+    archetypes.forEach(a=>{
+      state.archetypeLevel[a.id]=calcLevel(state.archetypeXP[a.id]);
+    });
+    backfillMajorLore();
+  }catch(e){
+    console.warn('Load fejl', e);
+  }
 }
 
 /* ---------- MANUEL GEM ---------- */
@@ -758,21 +874,25 @@ switchView(state.currentView);
 checkAchievements('initial');
 scheduleSave('postInit');
 
-/* ---------- DEBUG ---------- */
-window.debugLevelUp = function(id, boost=60){
+/* ---------- DEBUG HELPERS ---------- */
+window.debugAddXP = function(amount=50){
+  state.xp += amount;
+  renderProgressBar(); renderStory(); scheduleSave('debugAddXP');
+};
+window.debugArchetypeXP = function(id, amount=100){
   id=canonicalArchetypeId(id);
-  if(!(id in state.archetypeXP)){ console.warn('Ukendt arketype:', id); return; }
+  if(!(id in state.archetypeXP)) return;
   const before=calcLevel(state.archetypeXP[id]);
-  state.archetypeXP[id]+=boost;
+  state.archetypeXP[id]+=amount;
   const after=calcLevel(state.archetypeXP[id]);
-  for(let L=before+1; L<=after; L++) unlockLoreOrFallback(id, L);
+  if(after>before){
+    handleLevelUpLore(id, before, after);
+  } else {
+    maybeUnlockMinorLore(id);
+  }
   state.archetypeLevel[id]=after;
-  checkAchievements('debugLevel');
   renderProfile();
-  if(state.currentView==='chronicle') renderBookPages();
-  scheduleSave('debugLevelUp');
+  scheduleSave('debugArchetypeXP');
 };
 
-window.addEventListener('beforeunload', ()=> {
-  try { saveState('beforeUnload'); } catch(_){}
-});
+window.addEventListener('beforeunload', ()=>{ try{ saveState('beforeUnload'); }catch(_){ } });
