@@ -1,7 +1,7 @@
 /* Eryndors Lys – app.js (fuld fil)
-   Ændring for denne version:
-   - (Popup fix) queuePopup: giver .lore-overlay-wrap inline style pointer-events:auto; (så interaktion virker).
-   Ingen øvrige funktionsændringer ift. forrige fulde fil.
+   Ændring i denne version:
+   - POPUP POINTER-EVENTS FIX: #lore-popup-container har igen pointer-events:none, så den ikke blokerer knapper når der ikke vises popup.
+   - queuePopup sætter fortsat pointer-events:auto på selve overlay-wrap (så popup kan interageres).
 */
 import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
@@ -124,7 +124,6 @@ function showAchievementToast(def){
     borderRadius:'10px',
     font:'13px/1.4 system-ui,Arial,sans-serif',
     zIndex:9999,maxWidth:'260px',
-    boxShadow:'0 6px 18px rgba(0,0,0,.45)',
     opacity:'0',transform:'translateY(8px)',
     transition:'opacity .4s, transform .4s'
   });
@@ -184,7 +183,15 @@ function backfillMajorLore(){
 
 /* ---------- POPUP QUEUE ---------- */
 const popupQueue=[]; let popupActive=false;
-function ensurePopupContainer(){ if(!document.getElementById('lore-popup-container')){ const c=document.createElement('div'); c.id='lore-popup-container'; c.style.cssText='position:fixed;inset:0;z-index:5000;'; document.body.appendChild(c);} }
+function ensurePopupContainer(){
+  // POPUP POINTER-EVENTS FIX: pointer-events:none så container ikke fanger klik uden popup
+  if(!document.getElementById('lore-popup-container')){
+    const c=document.createElement('div');
+    c.id='lore-popup-container';
+    c.style.cssText='position:fixed;inset:0;z-index:5000;pointer-events:none;';
+    document.body.appendChild(c);
+  }
+}
 function enqueuePopup(b){ popupQueue.push(b); if(!popupActive) runNextPopup(); }
 function runNextPopup(){ if(!popupQueue.length){ popupActive=false; return; } popupActive=true; const b=popupQueue.shift(); b(()=>{ popupActive=false; runNextPopup(); }); }
 function basePopupHtml({title,bodyHtml,archetypeId,variant}){ const bg=getArchetypeImagePath(archetypeId); return `
@@ -198,8 +205,9 @@ function queuePopup(cfg){ enqueuePopup(done=>{
   ensurePopupContainer();
   const container=document.getElementById('lore-popup-container');
   const wrap=document.createElement('div');
+  // pointer-events:auto på wrap så kun overlay (ikke hele tom container) tager klik
   wrap.className='lore-overlay-wrap';
-  wrap.setAttribute('style','pointer-events:auto;'); /* sikrer klik fungerer */
+  wrap.style.pointerEvents='auto';
   wrap.innerHTML=basePopupHtml(cfg);
   container.appendChild(wrap);
   const popup=wrap.querySelector('.lore-popup'); void popup.offsetWidth;
@@ -235,7 +243,7 @@ function buildStaticMarkup(){
         <span class="icon">📖</span><span class="label">Krøniken</span>
       </button>
       <div id="mentor-overlay" style="display:none;"></div>
-      <div id="lore-popup-container" style="position:fixed;inset:0;z-index:5000;"></div>
+      <div id="lore-popup-container" style="position:fixed;inset:0;z-index:5000;pointer-events:none;"></div>
     </div>
     <div id="chronicle-view" class="view" style="display:none;">
       <div class="chron-shell">
@@ -624,7 +632,7 @@ function showProfileSelector(){
           <label class="ps-label">Upload avatar
             <input type="file" id="avatar-upload" accept="image/*" />
           </label>
-          <label class="ps-label">Eller URL
+            <label class="ps-label">Eller URL
             <input id="avatar-url" placeholder="https://..." />
           </label>
         </div>
