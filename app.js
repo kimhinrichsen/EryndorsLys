@@ -1,7 +1,7 @@
 /* Eryndors Lys – app.js (fuld fil)
-   Ændring for denne version:
-   - (Popup fix) queuePopup: giver .lore-overlay-wrap inline style pointer-events:auto; (så interaktion virker).
-   Ingen øvrige funktionsændringer ift. forrige fulde fil.
+   Ændring i denne version:
+   - Fix: #lore-popup-container får pointer-events:none så den ikke blokerer alle klik når der ikke er en popup.
+   (Kun 2 steder rørt: ensurePopupContainer() og den statiske markup i buildStaticMarkup()) 
 */
 import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
@@ -184,7 +184,14 @@ function backfillMajorLore(){
 
 /* ---------- POPUP QUEUE ---------- */
 const popupQueue=[]; let popupActive=false;
-function ensurePopupContainer(){ if(!document.getElementById('lore-popup-container')){ const c=document.createElement('div'); c.id='lore-popup-container'; c.style.cssText='position:fixed;inset:0;z-index:5000;'; document.body.appendChild(c);} }
+/* CHANGED: pointer-events:none tilføjet */
+function ensurePopupContainer(){
+  if(!document.getElementById('lore-popup-container')){
+    const c=document.createElement('div'); c.id='lore-popup-container';
+    c.style.cssText='position:fixed;inset:0;z-index:5000;pointer-events:none;';
+    document.body.appendChild(c);
+  }
+}
 function enqueuePopup(b){ popupQueue.push(b); if(!popupActive) runNextPopup(); }
 function runNextPopup(){ if(!popupQueue.length){ popupActive=false; return; } popupActive=true; const b=popupQueue.shift(); b(()=>{ popupActive=false; runNextPopup(); }); }
 function basePopupHtml({title,bodyHtml,archetypeId,variant}){ const bg=getArchetypeImagePath(archetypeId); return `
@@ -235,7 +242,8 @@ function buildStaticMarkup(){
         <span class="icon">📖</span><span class="label">Krøniken</span>
       </button>
       <div id="mentor-overlay" style="display:none;"></div>
-      <div id="lore-popup-container" style="position:fixed;inset:0;z-index:5000;"></div>
+      <!-- CHANGED: pointer-events:none tilføjet -->
+      <div id="lore-popup-container" style="position:fixed;inset:0;z-index:5000;pointer-events:none;"></div>
     </div>
     <div id="chronicle-view" class="view" style="display:none;">
       <div class="chron-shell">
@@ -537,7 +545,7 @@ function renderCompletedPage(){
   return `<div class="book-page book-page--completed"><h3>Gennemførte Quests</h3>
     <div class="qtable-wrap"><table class="qtable">
       <thead><tr><th>Navn</th><th>Arketype</th><th>XP</th><th>Rarity</th><th>Type</th><th>Tid</th></tr></thead>
-      <tbody>${list.map(q=>`<tr><td>${q.name}</td><td>${archetypeMap[q.archetype]?.name||q.archetype||''}</td><td class="num">${q.xp}</td><td>${q.rarity||''}</td><td>${q.type||''}</td><td>${new Date(q.completedAt).toLocaleString()}</td></tr>`).join('')}</tbody>
+      <tbody>${list.map(q=>`<tr><td>${q.name}</td><td>${archetypeMap[q.archetype]?.name||q.archetype||''}</td><td class="num">${q.xp}</td><td>${q.rarity||''}</td><td>${q.type||''}</td><td>${new Date(q.completedAt).toLocaleTimeString()}</td></tr>`).join('')}</tbody>
     </table></div>
   </div>`;
 }
@@ -545,7 +553,7 @@ function renderLorePage(){
   if(!state.chronicleLore.length) return `<div class="book-page book-page--lore"><h3>Lore</h3><em>Ingen lore endnu.</em></div>`;
   const list=[...state.chronicleLore].sort((a,b)=>b.ts-a.ts);
   return `<div class="book-page book-page--lore"><h3>Lore (Major)</h3><div class="lore-list">${
-    list.map(e=>`<div class="lore-item"><div class="lore-head"><span class="lore-title">${e.archetypeName} – Level ${e.level}</span><span class="lore-time">${new Date(e.ts).toLocaleTimeString()}</span></div><div class="lore-major">${e.majorLore}</div></div>`).join('')
+    list.map(e=>`<div class="lore-item"><div class="lore-head"><span class="lore-title">${e.archetypeName} – Level ${e.level}</span><span class="lore-time">${new Date(e.ts).toLocaleTimeString()}</span></div><div class="lore-body">${e.majorLore}</div></div>`).join('')
   }</div></div>`;
 }
 
@@ -769,7 +777,10 @@ function openCharacterEdit(){
   document.body.appendChild(wrap);
 
   let tempAvatar=state.meta.avatar||null;
-  function updateTempAvatar(){ const cur=wrap.querySelector('.char-current-avatar'); if(cur) cur.innerHTML=tempAvatar?`<img src='${tempAvatar}' alt=''>`:'<span class="ps-avatar-placeholder large">?</span>'; }
+  function updateTempAvatar(){
+    const cur=wrap.querySelector('.char-current-avatar');
+    if(cur) cur.innerHTML=tempAvatar?`<img src='${tempAvatar}' alt=''>`:'<span class="ps-avatar-placeholder large">?</span>';
+  }
   wrap.querySelectorAll('[data-mini-avatar]').forEach(btn=>btn.onclick=()=>{ tempAvatar=btn.getAttribute('data-mini-avatar'); updateTempAvatar(); });
   const fileInput=wrap.querySelector('#edit-avatar-upload'); const uploadLabel=wrap.querySelector('.upload-inline'); if(uploadLabel) uploadLabel.onclick=()=>fileInput?.click();
   if(fileInput){
