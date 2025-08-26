@@ -22,7 +22,7 @@
   font-size:16px;
 }
 * { box-sizing:border-box; }
-html,body { margin:0; padding:0; background:linear-gradient(180deg,#0b1113,#111b20 60%,#0f181c); color:var(--text); font-family:system-ui,Segoe UI,Arial,sans-serif; -webkit-font-smoothing:antialiased; }
+html,body { margin:0; padding:0; background:linear-gradient(180deg,#0b1113,#111b20 60%,#0f181c); color:var(--text); font-family:system-ui,Segoe UI,Arial,sans-serif; -webkit-font-smoothing:antialia; }
 body.lock-scroll, html.lock-scroll { overflow:hidden; }
 img { max-width:100%; height:auto; display:block; }
 
@@ -500,4 +500,30 @@ img { max-width:100%; height:auto; display:block; }
   .char-avatar-wrap { width:56px; height:56px; }
   .kro-mentorbox { flex:0 0 185px; }
   .kro-header { font-size:1rem; }
+}
+
+/* === FIX: Mentor-kort fuldt synlige og quests i grid på hovedvisningen ===
+   Minimal ændring: Overstyr kun på #main-view så andre visninger (fx krønike) kan beholde egne layouts.
+   Ingen eksisterende klasser fjernet eller JS påvirket.
+*/
+#main-view .kro-mentors-row {
+  flex-wrap:wrap;
+  overflow:visible;
+  padding:.35rem 0 .6rem;
+  scroll-snap-type:none;
+}
+#main-view .kro-mentorbox {
+  flex:1 1 220px;
+  max-width:240px;
+}
+#main-view .kro-quests {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+  gap:1rem;
+  align-items:start;
+}
+#chronicle-view .kro-quests {
+  display:flex;
+  flex-direction:column;
+  gap:.75rem;
 }
