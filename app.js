@@ -1,7 +1,7 @@
-/* Eryndors Lys – app.js (fuld fil med robust attachStateFromProfile patch)
-   Ændringer i forhold til nuværende repo-version:
-   - Robust attachStateFromProfile (løser "object is not iterable" ved nyoprettet profil).
-   Alt andet uændret.
+/* Eryndors Lys – app.js (fuld fil)
+   Ændring for denne version:
+   - (Popup fix) queuePopup: giver .lore-overlay-wrap inline style pointer-events:auto; (så interaktion virker).
+   Ingen øvrige funktionsændringer ift. forrige fulde fil.
 */
 import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
@@ -27,7 +27,7 @@ import {
 } from './profiles.js';
 
 /* ---------- KONFIG ---------- */
-const ALWAYS_SHOW_PROFILE_SELECTOR = true; // sæt false hvis du vil auto-loade sidste profil
+const ALWAYS_SHOW_PROFILE_SELECTOR = true;
 
 /* ---------- KONSTANTER ---------- */
 const SAVE_VERSION = 8;
@@ -184,7 +184,7 @@ function backfillMajorLore(){
 
 /* ---------- POPUP QUEUE ---------- */
 const popupQueue=[]; let popupActive=false;
-function ensurePopupContainer(){ if(!document.getElementById('lore-popup-container')){ const c=document.createElement('div'); c.id='lore-popup-container'; c.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:5000;'; document.body.appendChild(c);} }
+function ensurePopupContainer(){ if(!document.getElementById('lore-popup-container')){ const c=document.createElement('div'); c.id='lore-popup-container'; c.style.cssText='position:fixed;inset:0;z-index:5000;'; document.body.appendChild(c);} }
 function enqueuePopup(b){ popupQueue.push(b); if(!popupActive) runNextPopup(); }
 function runNextPopup(){ if(!popupQueue.length){ popupActive=false; return; } popupActive=true; const b=popupQueue.shift(); b(()=>{ popupActive=false; runNextPopup(); }); }
 function basePopupHtml({title,bodyHtml,archetypeId,variant}){ const bg=getArchetypeImagePath(archetypeId); return `
@@ -197,7 +197,11 @@ function basePopupHtml({title,bodyHtml,archetypeId,variant}){ const bg=getArchet
 function queuePopup(cfg){ enqueuePopup(done=>{
   ensurePopupContainer();
   const container=document.getElementById('lore-popup-container');
-  const wrap=document.createElement('div'); wrap.className='lore-overlay-wrap'; wrap.innerHTML=basePopupHtml(cfg); container.appendChild(wrap);
+  const wrap=document.createElement('div');
+  wrap.className='lore-overlay-wrap';
+  wrap.setAttribute('style','pointer-events:auto;'); /* sikrer klik fungerer */
+  wrap.innerHTML=basePopupHtml(cfg);
+  container.appendChild(wrap);
   const popup=wrap.querySelector('.lore-popup'); void popup.offsetWidth;
   const close=()=>{ popup.classList.remove('lore-popup-appear'); popup.classList.add('lore-popup-leave'); wrap.classList.add('lore-overlay-fade'); setTimeout(()=>{ wrap.remove(); done(); },310); };
   wrap.querySelector('.lp-close').onclick=close;
@@ -231,7 +235,7 @@ function buildStaticMarkup(){
         <span class="icon">📖</span><span class="label">Krøniken</span>
       </button>
       <div id="mentor-overlay" style="display:none;"></div>
-      <div id="lore-popup-container" style="position:fixed;inset:0;pointer-events:none;z-index:5000;"></div>
+      <div id="lore-popup-container" style="position:fixed;inset:0;z-index:5000;"></div>
     </div>
     <div id="chronicle-view" class="view" style="display:none;">
       <div class="chron-shell">
@@ -451,11 +455,11 @@ function renderActiveQuests(){
         state.xp+=quest.xp;
         const aId=canonicalArchetypeId(quest.archetype);
         if(aId && state.archetypeXP[aId]!=null){
-          const before=calcLevel(state.archetypeXP[aId]);
-          state.archetypeXP[aId]+=quest.xp;
-          const after=calcLevel(state.archetypeXP[aId]);
-          if(after>before) handleLevelUpLore(aId,before,after); else maybeUnlockMinorLore(aId);
-          state.archetypeLevel[aId]=after;
+            const before=calcLevel(state.archetypeXP[aId]);
+            state.archetypeXP[aId]+=quest.xp;
+            const after=calcLevel(state.archetypeXP[aId]);
+            if(after>before) handleLevelUpLore(aId,before,after); else maybeUnlockMinorLore(aId);
+            state.archetypeLevel[aId]=after;
         }
         state.active.splice(idx,1);
         renderProgressBar(); renderStory(); renderProfile(); renderQuests(); renderActiveQuests(); renderCharacterHeader(); checkAchievements('questComplete'); scheduleSave('questComplete');
@@ -557,51 +561,33 @@ function scheduleSave(reason){ if(_saveTimer) clearTimeout(_saveTimer); _saveTim
 function serializeState(){ return {...state, meta:{...state.meta,avatar:null}, achievementsUnlocked:[...state.achievementsUnlocked]}; }
 function saveState(){ try{ overwriteActiveProfileState(serializeState()); }catch(e){ console.warn('Save fejl',e);} }
 
-// PATCH START: robust attachStateFromProfile
+// Robust attachStateFromProfile
 function attachStateFromProfile(){
   const ps=getActiveProfileState(); const prof=getActiveProfile();
   if(!ps) return false;
-
-  // Normalisér achievementsUnlocked til et array før Set
   let raw = ps.achievementsUnlocked;
-  if(raw instanceof Set){
-    raw = [...raw];
-  } else if(Array.isArray(raw)){
-    // ok
-  } else if(raw && typeof raw === 'object' && !raw[Symbol.iterator]){
-    raw = Object.values(raw); // {} -> []
-  } else if(!raw){
-    raw = [];
-  } else {
-    try { raw = [...raw]; } catch { raw = []; }
-  }
-  try {
-    ps.achievementsUnlocked = new Set(raw);
-  } catch(e){
-    console.warn('[ATTACH] Set konverteringsfejl, bruger tom Set', e);
-    ps.achievementsUnlocked = new Set();
-  }
-
+  if(raw instanceof Set){ raw = [...raw]; }
+  else if(Array.isArray(raw)){}
+  else if(raw && typeof raw === 'object' && !raw[Symbol.iterator]){ raw = Object.values(raw); }
+  else if(!raw){ raw = []; }
+  else { try { raw = [...raw]; } catch { raw = []; } }
+  try { ps.achievementsUnlocked = new Set(raw); } catch(e){ console.warn('[ATTACH] Set konverteringsfejl',e); ps.achievementsUnlocked=new Set(); }
   if(!ps.meta) ps.meta={name:'Karakter',avatar:null};
   ps.meta.avatar=prof?.avatar||ps.meta.avatar||null;
-
   if(!ps.archetypeXP){
-    ps.archetypeXP = Object.fromEntries(archetypes.map(a=>[a.id,0]));
+    ps.archetypeXP=Object.fromEntries(archetypes.map(a=>[a.id,0]));
   } else {
     archetypes.forEach(a=>{ if(ps.archetypeXP[a.id]==null) ps.archetypeXP[a.id]=0; });
   }
   if(!ps.archetypeLevel){
-    ps.archetypeLevel = Object.fromEntries(archetypes.map(a=>[a.id,1]));
+    ps.archetypeLevel=Object.fromEntries(archetypes.map(a=>[a.id,1]));
   } else {
     archetypes.forEach(a=>{ if(ps.archetypeLevel[a.id]==null) ps.archetypeLevel[a.id]=1; });
   }
-
-  if(!ps.minorLoreProgress) ps.minorLoreProgress = {};
-
+  if(!ps.minorLoreProgress) ps.minorLoreProgress={};
   state=ps;
   return true;
 }
-// PATCH END
 
 /* ---------- BILLEDEKOMPRESSOR ---------- */
 async function fileToCompressedDataURL(file,maxSize=96){
