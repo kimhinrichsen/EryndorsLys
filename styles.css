@@ -1,482 +1,879 @@
-/* ========== GENERELT ========== */
-:root {
-  --bg:#0f1518;
-  --panel:#1b262c;
-  --panel-alt:#22323a;
-  --border:#2f434c;
-  --text:#e3edf1;
-  --text-dim:#9cb3be;
-  --accent:#4db07f;
-  --accent-glow:#5ddf9c;
-  --danger:#d35b52;
-  --radius:14px;
-  --transition:160ms cubic-bezier(.4,.2,.2,1);
-  --scrollbar-track:rgba(255,255,255,0.05);
-  --scrollbar-thumb:rgba(255,255,255,0.18);
-  font-size:16px;
-}
-* { box-sizing:border-box; }
-html,body { margin:0; padding:0; background:linear-gradient(180deg,#0b1113,#111b20 60%,#0f181c); color:var(--text); font-family:system-ui,Segoe UI,Arial,sans-serif; -webkit-font-smoothing:antialiased; }
-body.lock-scroll, html.lock-scroll { overflow:hidden; }
+/* Eryndors Lys – app.js (fuld fil)
+   Ændring for denne version:
+   - (Popup fix) queuePopup: giver .lore-overlay-wrap inline style pointer-events:auto; (så interaktion virker).
+   Ingen øvrige funktionsændringer ift. forrige fulde fil.
+*/
+import { storyChapters } from './story.js';
+import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
+import {
+  archetypes as archetypesFromRegistry,
+  archetypeMap,
+  getArchetypeLore,
+  getArchetypeImagePath
+} from './archetypes.js';
 
-/* Global billedreset – men lad vores specifikke klasser styre faste størrelser */
-img { max-width:100%; height:auto; display:block; }
+import {
+  ensureProfileStore,
+  listProfiles,
+  createProfile,
+  setActiveProfile,
+  getActiveProfileState,
+  overwriteActiveProfileState,
+  resetActiveProfile,
+  deleteProfile,
+  updateActiveProfileMeta,
+  PRESET_AVATARS,
+  getActiveProfile
+} from './profiles.js';
 
-/* ========== KNAPPER ========== */
-.btn, .kro-btn {
-  --btn-bg:var(--panel);
-  --btn-hover:#294048;
-  --btn-active:#203238;
-  background:var(--btn-bg);
-  color:var(--text);
-  border:1px solid var(--border);
-  border-radius:10px;
-  padding:.55rem .95rem;
-  font:500 0.85rem/1 system-ui,Arial,sans-serif;
-  cursor:pointer;
-  transition:background var(--transition), color var(--transition), border-color var(--transition), transform var(--transition);
-  position:relative;
-}
-.btn:hover, .kro-btn:hover { background:var(--btn-hover); }
-.btn:active, .kro-btn:active { background:var(--btn-active); transform:translateY(1px); }
-.btn.primary { background:linear-gradient(135deg,#289458,#2fa867); border-color:#2eab68; box-shadow:0 0 0 1px #2fa86755, 0 4px 14px -2px #1d6d4380; }
-.btn.primary:hover { background:linear-gradient(135deg,#2ea965,#37bd74); }
-.btn.primary:active { background:linear-gradient(135deg,#23804d,#2a945a); }
-.btn.ghost { background:transparent; border-color:var(--border); }
-.btn.danger { background:#772e2a; border-color:#a44a45; }
-.btn.danger:hover { background:#8a3b36; }
-.btn.mini { padding:.4rem .6rem; font-size:.72rem; }
-.btn.wide { width:100%; }
-.btn:disabled { opacity:.55; cursor:not-allowed; }
+/* ---------- KONFIG ---------- */
+const ALWAYS_SHOW_PROFILE_SELECTOR = true;
 
-/* ========== LAYOUT ========== */
-#app { max-width:1200px; margin:0 auto; padding:0 1rem 2rem; }
-.top-header {
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:1rem;
-  padding:1rem 0 .75rem;
-  position:relative;
-}
-.kro-header { font-size:1.25rem; margin:0; letter-spacing:.5px; font-weight:600; color:#f0fafb; text-shadow:0 0 6px rgba(255,255,255,0.15); }
+/* ---------- KONSTANTER ---------- */
+const SAVE_VERSION = 8;
+const SAVE_DEBOUNCE_MS = 400;
+const MAX_QUESTS_ON_TAVLE = 6;
+const XP_BASE = 50;
+const XP_EXPONENT = 1.25;
+const levelEmblems = {1:"🔸",2:"✨",3:"⭐",4:"🌟",5:"🌠"};
+const archetypes = archetypesFromRegistry;
 
-.header-right { display:flex; align-items:center; gap:.5rem; }
+const LORE_CONFIG = {
+  major: { mode: 'popup', archive: true },
+  minor: { mode: 'popup', archive: false }
+};
 
-.char-header {
-  display:flex;
-  align-items:center;
-  gap:.75rem;
-  min-width:0;
-}
+/* ---------- GLOBAL FEJL LOG ---------- */
+window.addEventListener('error', e=>console.error('[GLOBAL ERROR]', e.message, e.error));
+window.addEventListener('unhandledrejection', e=>console.error('[UNHANDLED PROMISE]', e.reason));
 
-/* ========== AVATAR I HEADER ========== */
-.char-avatar-wrap {
-  width:72px;
-  height:72px;
-  flex:0 0 auto;
-  border-radius:50%;
-  overflow:hidden;
-  position:relative;
-  box-shadow:0 3px 8px -2px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.06),0 0 0 3px rgba(70,140,120,.25);
-}
-.char-avatar {
-  width:100%;
-  height:100%;
-  object-fit:cover;
-  display:block;
-}
-.char-avatar.placeholder {
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-size:1.3rem;
-  background:#25353b;
-  color:#7da6b3;
-  font-weight:600;
-  font-family:inherit;
-  width:100%; height:100%;
+/* ---------- XP / LEVEL UTIL ---------- */
+function xpRequiredForLevel(l){ return Math.floor(XP_BASE * Math.pow(l, XP_EXPONENT)); }
+function xpForLevel(l){ let x=0; for(let i=1;i<l;i++) x+=xpRequiredForLevel(i); return x; }
+function calcLevel(x, max=100){ for(let L=1;L<max;L++){ if(x < xpForLevel(L+1)) return L; } return max; }
+function calcProgress(x, max=100){ const L=calcLevel(x,max), b=xpForLevel(L), n=xpForLevel(L+1); return Math.min((x-b)/(n-b),1); }
+function getPlayerLevel(){ return calcLevel(state.xp); }
+function getCurrentStoryChapter(){ return getPlayerLevel()-1; }
+
+/* ---------- CANONICAL ID ---------- */
+const _canonIdx = (() => {
+  function norm(s){ return (s||'').toString().trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9]+/g,''); }
+  const map={};
+  archetypes.forEach(a=>{
+    map[norm(a.id)] = a.id;
+    map[norm(a.name)] = a.id;
+  });
+  return {norm,map};
+})();
+function canonicalArchetypeId(raw){
+  if(!raw) return null;
+  const n=_canonIdx.norm(raw);
+  return _canonIdx.map[n] || raw;
 }
 
-.char-name {
-  font-size:1.05rem;
-  font-weight:600;
-  letter-spacing:.4px;
-  color:#f4fcff;
-  text-shadow:0 0 4px rgba(255,255,255,0.12);
-  max-width:140px;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
+/* ---------- STATE ---------- */
+function makeFreshState(){
+  return {
+    v:SAVE_VERSION,currentView:'main',xp:0,
+    archetypeXP:Object.fromEntries(archetypes.map(a=>[a.id,0])),
+    archetypeLevel:Object.fromEntries(archetypes.map(a=>[a.id,1])),
+    active:[],completed:[],tavleQuests:[],chronicleLore:[],
+    achievementsUnlocked:new Set(),bookPageIndex:0,minorLoreProgress:{},
+    meta:{name:'Karakter',avatar:null}
+  };
 }
+let state = makeFreshState();
 
-/* Hvis dit profilbillede var kæmpe skyldtes det næsten sikkert manglende width/height eller global img-style – nu låser vi det her. */
-
-/* ========== XP BAR ========== */
-.kro-xp-bar-container {
-  display:flex;
-  align-items:center;
-  gap:.7rem;
-  background:linear-gradient(145deg,#21323a,#19262c);
-  padding:.65rem .9rem;
-  border:1px solid #2e4852;
-  border-radius:14px;
-  box-shadow:0 4px 16px -4px #041c2133, inset 0 0 0 1px #5fb9ffa8, 0 0 0 1px #29576b;
-  position:relative;
-  overflow:hidden;
-}
-.kro-xp-bar-container::before {
-  content:"";
-  position:absolute;
-  inset:0;
-  background:radial-gradient(circle at 18% 20%,rgba(255,255,255,0.18),transparent 55%);
-  opacity:.22;
-  pointer-events:none;
-  mix-blend-mode:screen;
-}
-.kro-xp-emblem { font-size:1.4rem; filter:drop-shadow(0 0 4px #50b089); }
-.kro-xp-bar {
-  flex:1;
-  background:#132126;
-  height:14px;
-  border:1px solid #265157;
-  border-radius:30px;
-  position:relative;
-  overflow:hidden;
-  box-shadow:inset 0 2px 4px -1px #0007,0 0 0 1px rgba(90,230,180,0.15);
-}
-.kro-xp-bar-fill {
-  background:linear-gradient(90deg,#29a366,#3ce28d,#2fa368);
-  height:100%;
-  width:0;
-  border-radius:inherit;
-  box-shadow:0 0 6px -1px #40c890,0 0 0 1px rgba(255,255,255,.15),inset 0 0 4px rgba(0,0,0,.45);
-  transition:width 420ms cubic-bezier(.4,.2,.15,1);
-  position:relative;
-}
-.kro-xp-bar-fill::after {
-  content:"";
-  position:absolute;
-  inset:0;
-  background:linear-gradient(rgba(255,255,255,.35),rgba(255,255,255,0) 65%);
-  mix-blend-mode:overlay;
-  opacity:.5;
-}
-.kro-xp-bar-label {
-  font-size:.76rem;
-  font-weight:500;
-  letter-spacing:.5px;
-  color:#cfe7f0;
-  text-shadow:0 0 4px rgba(255,255,255,0.15);
-}
-
-/* ========== STORYBOX ========== */
-.kro-storybox {
-  margin-top:1rem;
-  padding:1.05rem 1.1rem;
-  border:1px solid var(--border);
-  border-radius:14px;
-  background:linear-gradient(150deg,#1e2d33,#182327 70%,#141d21);
-  box-shadow:0 4px 16px -6px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,0.05);
-  position:relative;
-  overflow:hidden;
-}
-.kro-storybox::before {
-  content:"";
-  position:absolute;
-  inset:0;
-  background:
-    radial-gradient(circle at 78% 26%, rgba(70,180,255,0.1), transparent 50%),
-    radial-gradient(circle at 15% 100%, rgba(60,120,255,0.12), transparent 55%);
-  pointer-events:none;
-  mix-blend-mode:color-dodge;
-  opacity:.7;
-}
-.kro-storytitle {
-  margin:0 0 .65rem;
-  font-size:1.15rem;
-  font-weight:600;
-  letter-spacing:.5px;
-  color:#f5fcff;
-  text-shadow:0 0 6px rgba(255,255,255,0.18);
-}
-.kro-storybody {
-  font-size:.84rem;
-  line-height:1.55;
-  color:#d0e1e7;
-  letter-spacing:.3px;
-  text-shadow:0 0 3px rgba(255,255,255,0.06);
-}
-
-/* ========== PROFIL / MENTORER ========== */
-.kro-profilbox {
-  display:flex;
-  align-items:center;
-  gap:1rem;
-  margin-top:1.3rem;
-  padding:.9rem 1rem;
-  background:linear-gradient(135deg,#22333a,#1b272d);
-  border:1px solid #2b434c;
-  border-radius:14px;
-  box-shadow:0 3px 12px -4px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,0.04);
-}
-.kro-xp-header { font-size:.9rem; font-weight:600; letter-spacing:.5px; color:#e0f2f7; text-shadow:0 0 4px rgba(255,255,255,0.1); }
-
-.kro-mentors { margin-top:1.1rem; }
-.kro-mentors-row {
-  display:flex;
-  flex-wrap:nowrap;          /* VIGTIGT: ingen wrap */
-  gap:16px;
-  overflow-x:auto;
-  overflow-y:hidden;
-  padding:.35rem .25rem .6rem;
-  scrollbar-width:thin;
-  scrollbar-color:var(--scrollbar-thumb) var(--scrollbar-track);
-  scroll-snap-type:x proximity;
-}
-.kro-mentors-row::-webkit-scrollbar { height:10px; }
-.kro-mentors-row::-webkit-scrollbar-track { background:var(--scrollbar-track); border-radius:30px; }
-.kro-mentors-row::-webkit-scrollbar-thumb { background:var(--scrollbar-thumb); border-radius:30px; box-shadow:inset 0 0 0 1px rgba(255,255,255,0.08); }
-.kro-mentors-row::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,0.33); }
-
-.kro-mentorbox {
-  flex:0 0 240px;           /* Fast kortbredde, så de ikke strækker */
-  scroll-snap-align:start;
-  position:relative;
-  border:1px solid #2d4951;
-  border-radius:16px;
-  background:linear-gradient(160deg,#25353c,#1a262b);
-  padding:.95rem 1rem .9rem;
-  display:flex;
-  flex-direction:column;
-  gap:.5rem;
-  cursor:pointer;
-  box-shadow:0 4px 12px -5px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,0.05);
-  transition:transform .55s cubic-bezier(.16, .72, .23, 1), box-shadow var(--transition), border-color var(--transition);
-  overflow:hidden;
-}
-.kro-mentorbox:hover {
-  transform:translateY(-4px) rotate3d(1,1,0,10deg);
-  box-shadow:0 10px 28px -6px rgba(0,0,0,.75),0 0 0 1px rgba(255,255,255,0.08),0 5px 15px -4px rgba(0,140,255,.35), 0 12px 22px -6px rgba(25,180,90,.45);
-  border-color:#3d6c5f;
-}
-.kro-mentorbox::before {
-  content:"";
-  position:absolute;
-  inset:-1px;
-  border:1px solid rgba(255,255,255,0.08);
-  border-radius:inherit;
-  pointer-events:none;
-  mix-blend-mode:overlay;
-  opacity:.8;
-}
-.kro-mentor-img {
-  width:100%;
-  aspect-ratio:16/9;
-  border-radius:12px;
-  object-fit:cover;
-  position:relative;
-  z-index:1;
-  box-shadow:0 3px 10px -4px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,0.07), 0 0 0 2px rgba(100,200,150,0.25), 0 0 0 5px rgba(0,0,0,.5), 0 4px 18px -4px #006f5caa, 0 0 12px 2px rgba(255,255,255,0.1);
-  background:#182629 linear-gradient(145deg,rgba(35,120,180,0.25),rgba(20,60,40,0.3));
-  transform:translateZ(0);
-}
-.kro-mentor-main {
-  font-size:.78rem;
-  font-weight:600;
-  letter-spacing:.5px;
-  color:#d9f0f5;
-  text-transform:uppercase;
-  text-shadow:0 0 5px rgba(255,255,255,0.2);
-}
-.kro-mentor-progressbar {
-  display:flex;
-  align-items:center;
-  gap:.5rem;
-  background:#162024;
-  border:1px solid #264047;
-  border-radius:10px;
-  padding:.4rem .55rem;
-  font-size:.65rem;
-  text-shadow:0 0 5px rgba(255,255,255,0.15);
-}
-.kro-mentor-emblem { font-size:1.15rem; filter:drop-shadow(0 0 4px rgba(255,255,255,0.3)); }
-.kro-mentor-bar {
-  position:relative;
-  flex:1;
-  height:12px;
-  border-radius:30px;
-  background:#1a2c30;
-  border:1px solid #2e5964;
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,0.06), 0 2px 8px -3px rgba(0,0,0,.6);
-  overflow:hidden;
-  transform-style:preserve-3d;
-  perspective:600px;
-}
-.kro-mentor-bar::before {
-  content:"";
-  position:absolute;
-  inset:0;
-  background:
-    repeating-linear-gradient(45deg,rgba(255,255,255,0.09) 0 6px,transparent 6px 12px),
-    radial-gradient(circle at 30% 30%, rgba(0,255,200,0.35), transparent 60%);
-  mix-blend-mode:overlay;
-  opacity:.55;
-  pointer-events:none;
-}
-.kro-mentor-bar-fill {
-  position:absolute;
-  inset:0;
-  width:0;
-  background:linear-gradient(90deg,#21a892 0%,#1f6bb6 40%,#6a3dc6 70%,#b853e8 100%);
-  box-shadow:0 0 0 1px rgba(255,255,255,0.2),0 0 6px -1px #53ffd5, 0 0 30px -5px #53ffd5, 4px 0 30px -8px #8b48ff;
-  animation:mentorbarGlow 7s ease-in-out infinite;
-  transform:translateZ(0);
-}
-@keyframes mentorbarGlow {
-  0% { filter:brightness(1) contrast(1);}
-  50% { filter:brightness(1.15) contrast(1.05);}
-  100% { filter:brightness(1) contrast(1);}
-}
-.kro-mentor-bar-fill::after {
-  content:"";
-  position:absolute;
-  inset:0;
-  background:
-    linear-gradient(rgba(255,255,255,0.3),rgba(255,255,255,0) 60%),
-    repeating-linear-gradient(90deg,rgba(255,255,255,0.18) 0 12px,rgba(255,255,255,0) 12px 24px);
-  mix-blend-mode:overlay;
-  opacity:.5;
-  pointer-events:none;
-}
-.kro-mentor-bar-label {
-  font-size:.72rem;
-  font-weight:600;
-  letter-spacing:.5px;
-  color:#c4eef5;
-  text-shadow:0 0 4px rgba(255,255,255,0.2);
-}
-
-@media (max-width:800px){
-  .kro-mentorbox {
-    flex:0 0 195px;
+/* ---------- ACHIEVEMENTS ---------- */
+const achievementDefs = [
+  {id:'first_quest', title:'Første Skridt', desc:'Gennemfør 1 quest', check:()=>state.completed.length>=1},
+  {id:'ten_quests', title:'Ti i Tasken', desc:'Gennemfør 10 quests', check:()=>state.completed.length>=10},
+  {id:'total_xp_500', title:'Stjernelys 500', desc:'Opnå 500 samlet XP', check:()=>state.xp>=500},
+  ...archetypes.map(a=>({
+    id:`archetype_lvl_3_${a.id}`, title:`${a.name} III`, desc:`Nå level 3 med ${a.name}`,
+    check:()=>calcLevel(state.archetypeXP[a.id])>=3,
+    archetype:a.id
+  }))
+];
+function achievementsForArchetype(aId){ return achievementDefs.filter(a=>a.archetype===aId); }
+function checkAchievements(reason){
+  let changed=false;
+  for(const def of achievementDefs){
+    if(!state.achievementsUnlocked.has(def.id) && def.check()){
+      state.achievementsUnlocked.add(def.id);
+      if(state.currentView==='main') showAchievementToast(def);
+      changed=true;
+    }
   }
-  .char-avatar-wrap { width:60px; height:60px; }
+  if(changed){
+    if(state.currentView==='chronicle') renderBookPages();
+    scheduleSave(reason||'achievements');
+  }
+}
+function showAchievementToast(def){
+  const box=document.createElement('div');
+  box.className='ach-toast';
+  box.innerHTML=`<strong>${def.title}</strong><br><span>${def.desc}</span>`;
+  Object.assign(box.style,{
+    position:'fixed',bottom:'1rem',left:'1rem',
+    background:'linear-gradient(135deg,#234e28,#1a3520)',
+    color:'#e2f8e5',padding:'12px 16px',
+    border:'1px solid #3d6a42',
+    borderRadius:'10px',
+    font:'13px/1.4 system-ui,Arial,sans-serif',
+    zIndex:9999,maxWidth:'260px',
+    boxShadow:'0 6px 18px rgba(0,0,0,.45)',
+    opacity:'0',transform:'translateY(8px)',
+    transition:'opacity .4s, transform .4s'
+  });
+  document.body.appendChild(box);
+  requestAnimationFrame(()=>{ box.style.opacity='1'; box.style.transform='translateY(0)'; });
+  setTimeout(()=>{ box.style.opacity='0'; box.style.transform='translateY(8px)'; setTimeout(()=>box.remove(),450); },4600);
 }
 
-/* ========== QUESTS (kun relevante dele for oversigt) ========== */
-.kro-quests { display:grid; gap:1rem; margin-top:.6rem; }
-.kro-questroll {
-  background:#1c2a31;
-  border:1px solid #2d454d;
-  border-radius:14px;
-  padding:.8rem .95rem;
-  font-size:.78rem;
-  line-height:1.4;
-  position:relative;
-  overflow:hidden;
-  display:flex;
-  flex-direction:column;
-  gap:.45rem;
-  box-shadow:0 3px 12px -5px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,0.04);
+/* ---------- LORE ---------- */
+function getMinorShownCount(id,l){ return state.minorLoreProgress[id]?.[l]||0; }
+function setMinorShownCount(id,l,c){ if(!state.minorLoreProgress[id]) state.minorLoreProgress[id]={}; state.minorLoreProgress[id][l]=c; }
+function unlockMajorLore(id,l){
+  if(!LORE_CONFIG.major.archive) return;
+  const lore=getArchetypeLore(id,l);
+  if(!lore) return;
+  const key=`${id}_${l}`;
+  if(!state.chronicleLore.some(e=>e.id===key)){
+    state.chronicleLore.push({id:key,archetypeId:id,archetypeName:archetypeMap[id]?.name||id,level:l,majorLore:lore.majorLore,ts:Date.now()});
+  }
 }
-.quest-topline {
-  display:flex;
-  align-items:center;
-  gap:.5rem;
-  font-weight:600;
-  letter-spacing:.4px;
-  font-size:.85rem;
-  text-shadow:0 0 5px rgba(255,255,255,0.15);
+function showMajorLorePopup(id,l){ if(LORE_CONFIG.major.mode!=='popup') return;
+  const lore=getArchetypeLore(id,l); if(!lore) return;
+  queuePopup({title:`${archetypeMap[id]?.name||id} – Level ${l}`,archetypeId:id,variant:'lore-popup--major',bodyHtml:`<p class="lp-major">${lore.majorLore}</p>`});
 }
-.quest-rarity {
-  font-size:.55rem;
-  text-transform:uppercase;
-  padding:.25rem .45rem;
-  border-radius:30px;
-  letter-spacing:1px;
-  font-weight:600;
-  border:1px solid rgba(255,255,255,0.12);
-  background:#2a2e25;
-  color:#e7e6d8;
-  white-space:nowrap;
-  box-shadow:0 0 0 1px rgba(255,255,255,0.07),0 1px 3px -1px rgba(0,0,0,.5);
+function showMinorLorePopup(id,l,line){ if(LORE_CONFIG.minor.mode!=='popup') return;
+  queuePopup({title:`${archetypeMap[id]?.name||id} – Fragment (Lvl ${l})`,archetypeId:id,variant:'lore-popup--minor',bodyHtml:`<p class="lp-minor-frag">${line}</p>`});
 }
-.quest-rarity--uncommon { background:#23402e; color:#b6eccb; }
-.quest-rarity--rare { background:#1d2f52; color:#c9dcfa; }
-.quest-rarity--epic { background:#4a3516; color:#fadca9; }
-
-.kro-quest-progress { display:flex; gap:.6rem; align-items:center; justify-content:space-between; }
-
-.kro-quest-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
-
-/* ========== KRØNIKE LAUNCHER ========== */
-.chronicle-launch {
-  position:fixed;
-  right:1rem;
-  bottom:1rem;
-  background:#233137;
-  border:1px solid #35515b;
-  border-radius:16px;
-  padding:.65rem .85rem;
-  cursor:pointer;
-  box-shadow:0 6px 18px -4px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,0.06);
-  display:flex;
-  align-items:center;
-  gap:.4rem;
-  font-size:.8rem;
-  font-weight:600;
-  color:#d4edf4;
-  letter-spacing:.6px;
-  text-shadow:0 0 4px rgba(255,255,255,0.12);
-  transition:transform .45s cubic-bezier(.16,.8,.25,1), background var(--transition), box-shadow var(--transition), border-color var(--transition);
-  z-index:400;
+function maybeUnlockMinorLore(id){
+  const xp=state.archetypeXP[id], level=calcLevel(xp), lore=getArchetypeLore(id,level);
+  if(!lore||!Array.isArray(lore.minorLore)||!lore.minorLore.length) return;
+  const n=lore.minorLore.length, shown=getMinorShownCount(id,level);
+  if(shown>=n) return;
+  const p=calcProgress(xp);
+  for(let i=shown+1;i<=n;i++){
+    if(p >= i/(n+1)){
+      setMinorShownCount(id,level,i);
+      scheduleSave('minorLoreUnlock');
+      showMinorLorePopup(id,level,lore.minorLore[i-1]);
+    } else break;
+  }
 }
-.chronicle-launch:hover {
-  transform:translateY(-4px) translateZ(0);
-  background:#2c4148;
-  border-color:#42717f;
-  box-shadow:0 12px 28px -8px rgba(0,0,0,.75),0 0 0 1px rgba(255,255,255,0.1),0 0 4px 2px rgba(90,230,200,0.35);
+function handleLevelUpLore(id,before,after){
+  for(let L=before+1;L<=after;L++){
+    unlockMajorLore(id,L);
+    setMinorShownCount(id,L,0);
+    if(state.currentView==='main') showMajorLorePopup(id,L);
+  }
+}
+function backfillMajorLore(){
+  archetypes.forEach(a=>{
+    const lvl=calcLevel(state.archetypeXP[a.id]);
+    for(let L=2;L<=lvl;L++){
+      if(!state.chronicleLore.some(e=>e.id===`${a.id}_${L}`)) unlockMajorLore(a.id,L);
+    }
+  });
 }
 
-/* ========== PROFILVÆLGER (kun avatarfelt justering) ========== */
-.profile-select-screen .ps-avatar img {
-  width:64px;
-  height:64px;
-  object-fit:cover;
-  border-radius:12px;
-}
-.ps-avatar-placeholder {
-  width:64px;
-  height:64px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background:#243238;
-  color:#7aa6b5;
-  border-radius:12px;
-  font-weight:600;
-  font-size:1.1rem;
+/* ---------- POPUP QUEUE ---------- */
+const popupQueue=[]; let popupActive=false;
+function ensurePopupContainer(){ if(!document.getElementById('lore-popup-container')){ const c=document.createElement('div'); c.id='lore-popup-container'; c.style.cssText='position:fixed;inset:0;z-index:5000;'; document.body.appendChild(c);} }
+function enqueuePopup(b){ popupQueue.push(b); if(!popupActive) runNextPopup(); }
+function runNextPopup(){ if(!popupQueue.length){ popupActive=false; return; } popupActive=true; const b=popupQueue.shift(); b(()=>{ popupActive=false; runNextPopup(); }); }
+function basePopupHtml({title,bodyHtml,archetypeId,variant}){ const bg=getArchetypeImagePath(archetypeId); return `
+  <div class="lore-popup lore-popup-appear ${variant||''} ${bg?'lore-popup--arch':''}" ${archetypeId?`data-archetype="${archetypeId}"`:''} style="${bg?`--arch-bg:url('${bg}');`:''}">
+    <button class="lp-close" aria-label="Luk">✖</button>
+    <div class="lp-top"><h2 class="lp-title">${title}</h2></div>
+    <div class="lp-body">${bodyHtml}</div>
+    <div class="lp-actions"><button class="btn primary lp-ok-btn">Fortsæt</button></div>
+  </div>`; }
+function queuePopup(cfg){ enqueuePopup(done=>{
+  ensurePopupContainer();
+  const container=document.getElementById('lore-popup-container');
+  const wrap=document.createElement('div');
+  wrap.className='lore-overlay-wrap';
+  wrap.setAttribute('style','pointer-events:auto;'); /* sikrer klik fungerer */
+  wrap.innerHTML=basePopupHtml(cfg);
+  container.appendChild(wrap);
+  const popup=wrap.querySelector('.lore-popup'); void popup.offsetWidth;
+  const close=()=>{ popup.classList.remove('lore-popup-appear'); popup.classList.add('lore-popup-leave'); wrap.classList.add('lore-overlay-fade'); setTimeout(()=>{ wrap.remove(); done(); },310); };
+  wrap.querySelector('.lp-close').onclick=close;
+  wrap.querySelector('.lp-ok-btn').onclick=close;
+  wrap.addEventListener('mousedown',e=>{ if(e.target===wrap) close(); });
+  window.addEventListener('keydown',function esc(e){ if(e.key==='Escape'){ close(); window.removeEventListener('keydown',esc);} });
+}); }
+
+/* ---------- DOM MARKUP ---------- */
+function root(){ return document.getElementById('app'); }
+function buildStaticMarkup(){
+  const r=root(); if(!r){ console.error('[INIT] Mangler #app root'); return; }
+  r.innerHTML=`
+    <div id="main-view" class="view">
+      <header class="top-header">
+        <div class="char-header">
+          <div class="char-avatar-wrap" id="char-avatar-display"></div>
+          <div class="char-name" id="char-name-display"></div>
+        </div>
+        <h1 class="kro-header">🍻 Eryndors Kro</h1>
+        <div class="header-right">
+          <button id="switch-profile" class="btn ghost mini">Skift Karakter</button>
+        </div>
+      </header>
+      <section id="progressbar"></section>
+      <section id="story"></section>
+      <section id="profile"></section>
+      <section id="quests"></section>
+      <section id="activequests"></section>
+      <button id="chronicle-launcher" class="chronicle-launch" title="Åbn Krøniken">
+        <span class="icon">📖</span><span class="label">Krøniken</span>
+      </button>
+      <div id="mentor-overlay" style="display:none;"></div>
+      <div id="lore-popup-container" style="position:fixed;inset:0;z-index:5000;"></div>
+    </div>
+    <div id="chronicle-view" class="view" style="display:none;">
+      <div class="chron-shell">
+        <header class="chron-topbar">
+          <button id="back-to-main" class="btn back-btn">⬅ Tilbage</button>
+          <h2 class="chron-title">Krøniken</h2>
+          <div class="chron-actions"><button id="save-now" class="btn ghost">💾 Gem</button></div>
+        </header>
+        <div class="book-wrapper">
+          <div class="book">
+            <div class="book-cover">
+              <div class="book-cover-inner">
+                <div class="book-logo">📖</div>
+                <div class="book-brand">Eryndors Lys</div>
+              </div>
+            </div>
+            <div class="book-spine"></div>
+            <div class="book-pages">
+              <div class="book-pagination">
+                <button id="book-prev" class="btn mini" title="Forrige">⬅</button>
+                <div class="page-indicator"><span id="book-page-current">1</span>/<span id="book-page-total">2</span></div>
+                <button id="book-next" class="btn mini" title="Næste">➡</button>
+              </div>
+              <div class="book-spread" id="book-spread"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
 }
 
-.chosen-avatar-img {
-  width:96px;
-  height:96px;
-  object-fit:cover;
-  border-radius:18px;
-  box-shadow:0 4px 14px -4px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,0.15);
+/* ---------- VIEW SWITCH ---------- */
+function setBodyScrollLock(view){
+  if(view==='chronicle'){ document.documentElement.classList.add('lock-scroll'); document.body.classList.add('lock-scroll'); }
+  else { document.documentElement.classList.remove('lock-scroll'); document.body.classList.remove('lock-scroll'); }
+}
+function switchView(view){
+  state.currentView=view;
+  const main=document.getElementById('main-view');
+  const chron=document.getElementById('chronicle-view');
+  if(main) main.style.display = view==='main' ? '' : 'none';
+  if(chron) chron.style.display = view==='chronicle' ? '' : 'none';
+  setBodyScrollLock(view);
+  if(view==='chronicle') renderBookPages();
+  scheduleSave('switchView');
 }
 
-/* ========== OVERLAY SCROLLBAR STYLING ========== */
-::-webkit-scrollbar { width:10px; }
-::-webkit-scrollbar-track { background:var(--scrollbar-track); }
-::-webkit-scrollbar-thumb { background:var(--scrollbar-thumb); border-radius:6px; }
-::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,0.34); }
-
-/* ========== RESPONSIVE ==========
-   Mindre end 600px: skaler lidt ned */
-@media (max-width:600px){
-  .char-avatar-wrap { width:56px; height:56px; }
-  .kro-mentorbox { flex:0 0 185px; }
-  .kro-header { font-size:1rem; }
+/* ---------- RENDER ---------- */
+function renderCharacterHeader(){
+  const av=document.getElementById('char-avatar-display');
+  const nm=document.getElementById('char-name-display');
+  if(av) av.innerHTML= state.meta.avatar ? `<img src='${state.meta.avatar}' alt='Avatar' class='char-avatar'>` : `<div class="char-avatar placeholder">?</div>`;
+  if(nm) nm.textContent=state.meta.name||'Karakter';
 }
+function renderProgressBar(){
+  const L=getPlayerLevel(), p=calcProgress(state.xp);
+  const el=document.getElementById('progressbar'); if(!el) return;
+  el.innerHTML=`<div class="kro-xp-bar-container">
+    <span class="kro-xp-emblem">${levelEmblems[L]||''}</span>
+    <div class="kro-xp-bar"><div class="kro-xp-bar-fill" style="width:${Math.round(p*100)}%"></div></div>
+    <span class="kro-xp-bar-label">Level ${L} / Stjernelys: ${state.xp - xpForLevel(L)} / ${xpRequiredForLevel(L)}</span>
+  </div>`;
+}
+function renderStory(){
+  const idx=Math.max(0,Math.min(storyChapters.length-1,getCurrentStoryChapter()));
+  const chapter=storyChapters[idx];
+  const el=document.getElementById('story'); if(!el) return;
+  el.innerHTML=`<div class="kro-storybox"><h2 class="kro-storytitle">${chapter.title}</h2><div class="kro-storybody">${chapter.text}</div></div>`;
+}
+function renderProfile(){
+  const div=document.getElementById('profile'); if(!div) return;
+  div.innerHTML=`
+  <div class="kro-profilbox">
+    <span class="kro-xp-header">🍺 Stjernelys: <b>${state.xp}</b></span>
+    <button class="btn mini ghost" id="edit-character-btn">Redigér Karakter</button>
+  </div>
+  <div class="kro-mentors"><div class="kro-mentors-row">
+    ${archetypes.map(a=>{
+      const xp=state.archetypeXP[a.id], lv=calcLevel(xp), pr=calcProgress(xp);
+      return `<span class="kro-mentorbox" data-mentor="${a.id}">
+        <img class="kro-mentor-img" src="${getArchetypeImagePath(a.id)}" alt="${a.name}">
+        <span class="kro-mentor-main">${a.icon||''} <b>${a.name}</b></span>
+        <span class="kro-mentor-progressbar">
+          <span class="kro-mentor-emblem">${levelEmblems[lv]||''}</span>
+          <div class="kro-mentor-bar"><div class="kro-mentor-bar-fill" style="width:${Math.round(pr*100)}%"></div></div>
+          <span class="kro-mentor-bar-label">Level ${lv}</span>
+        </span>
+      </span>`;
+    }).join('')}
+  </div></div>`;
+  div.querySelectorAll('.kro-mentorbox').forEach(el=>{ el.onclick=()=>showMentorOverlay(el.getAttribute('data-mentor')); });
+  const edit=document.getElementById('edit-character-btn'); if(edit) edit.onclick=()=>openCharacterEdit();
+}
+function rarityBadge(r){
+  if(!r||r==='legacy') return '';
+  const map={common:{c:'#d8d0c0',bg:'#3b352c'},uncommon:{c:'#b6e8c7',bg:'#22402b'},rare:{c:'#c3d9f7',bg:'#1e2f49'},epic:{c:'#f8d28a',bg:'#4a3614'}};
+  const m=map[r]||map.common;
+  return `<span class="quest-rarity quest-rarity--${r}" style="color:${m.c};background:${m.bg};">${r}</span>`;
+}
+
+/* ---------- MENTOR OVERLAY ---------- */
+function showMentorOverlay(id){
+  id=canonicalArchetypeId(id);
+  const mentor=archetypes.find(a=>a.id===id); if(!mentor) return;
+  let overlay=document.getElementById('mentor-overlay'); if(!overlay){ overlay=document.createElement('div'); overlay.id='mentor-overlay'; document.body.appendChild(overlay); }
+  const xp=state.archetypeXP[id], lv=calcLevel(xp);
+  const archAch=achievementsForArchetype(id), items=mentor.items||mentor.itemList||[];
+  const achHtml=archAch.length?`<div class="mentor-subsection"><h4 class="mentor-subtitle">Achievements</h4><div class="mentor-ach-grid">${
+    archAch.map(a=>`<div class="mentor-ach-item ${state.achievementsUnlocked.has(a.id)?'unlocked':''}">
+      <span class="ach-name">${a.title}</span><span class="ach-status">${state.achievementsUnlocked.has(a.id)?'✓':'–'}</span><div class="ach-desc">${a.desc}</div></div>`).join('')
+  }</div></div>`:`<div class="mentor-subsection"><h4 class="mentor-subtitle">Achievements</h4><em>Ingen specifikke achievements.</em></div>`;
+  const itemsHtml=items.length?`<div class="mentor-subsection"><h4 class="mentor-subtitle">Items</h4><ul class="mentor-items">${
+    items.map(it=> typeof it==='string'?`<li>${it}</li>`:`<li><b>${it.name||'Ukendt'}</b>${it.desc?` – <span class="item-desc">${it.desc}</span>`:''}</li>` ).join('')
+  }</ul></div>`:`<div class="mentor-subsection"><h4 class="mentor-subtitle">Items</h4><em>Ingen items (endnu).</em></div>`;
+  overlay.innerHTML=`
+  <div class="kro-mentor-overlaybox kro-mentor-overlaybox--with-bg mentor-overlay-fixed" style="--mentor-overlay-bg:url('${getArchetypeImagePath(id)}')">
+    <button class="kro-btn kro-close" id="close-mentor-overlay">✖</button>
+    <div class="mentor-overlay-columns">
+      <div class="mentor-col mentor-col--info">
+        <div class="kro-mentor-overlay-header"><span class="kro-mentor-overlay-icon">${mentor.icon||''}</span><span class="kro-mentor-overlay-title">${mentor.name}</span></div>
+        <p class="kro-mentor-background">${mentor.description||''}</p>
+        <div class="kro-mentor-overlay-progressbar">
+          <span class="kro-mentor-emblem">${levelEmblems[lv]||''}</span>
+          <div class="kro-mentor-bar"><div class="kro-mentor-bar-fill" style="width:${Math.round(calcProgress(xp)*100)}%"></div></div>
+          <span class="kro-mentor-bar-label">Level ${lv} – XP: ${xp - xpForLevel(lv)} / ${xpRequiredForLevel(lv)}</span>
+        </div>
+      </div>
+      <div class="mentor-col mentor-col--lists">${achHtml}${itemsHtml}</div>
+    </div>
+  </div>`;
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(32,16,4,0.82);z-index:5500;display:flex;align-items:center;justify-content:center;padding:20px;';
+  document.body.classList.add('lock-scroll');
+  const closeBtn=document.getElementById('close-mentor-overlay'); if(closeBtn) closeBtn.onclick=closeMentorOverlay;
+  overlay.addEventListener('mousedown', e=>{ if(e.target===overlay) closeMentorOverlay(); });
+}
+function closeMentorOverlay(){
+  const ov=document.getElementById('mentor-overlay');
+  if(ov){ ov.style.display='none'; ov.innerHTML=''; }
+  document.body.classList.remove('lock-scroll'); document.documentElement.classList.remove('lock-scroll');
+}
+
+/* ---------- QUESTS ---------- */
+function refillTavleQuests(){
+  while(state.tavleQuests.length<MAX_QUESTS_ON_TAVLE){
+    const n=generateQuestList(1,{playerLevel:getPlayerLevel(),archetypeLevels:state.archetypeLevel,currentProgressCount:state.active.filter(q=>q.type==='progress').length})[0];
+    if(n){ n.archetype=canonicalArchetypeId(n.archetype); state.tavleQuests.push(n); } else break;
+  }
+}
+function renderQuests(){
+  refillTavleQuests();
+  const div=document.getElementById('quests'); if(!div) return;
+  div.innerHTML=`<h2 class="kro-questheader">📜 Quests på tavlen</h2><div class="kro-quests"></div>`;
+  const wrap=div.querySelector('.kro-quests'); if(!wrap) return;
+  wrap.innerHTML='';
+  state.tavleQuests.forEach(q=>{
+    const progressHtml=q.type==='progress'?`<div class="kro-quest-progress">Fremgang: ${q.progress} / ${q.vars[q.goal]} <button class="kro-btn" data-progress="${q.id}">+1</button></div>`:'';
+    const el=document.createElement('div');
+    el.className='kro-questroll';
+    el.innerHTML=`
+      <span class="kro-questicon">${q.icon||''}</span>
+      <div class="quest-topline"><b>${q.name}</b>${rarityBadge(q.rarity)}</div>
+      <div class="kro-questdesc">${q.desc}</div>
+      <div class="kro-questpts">XP: <b>${q.xp}</b> | Type: ${q.type==='progress'?'⏳ progress':'⚡ instant'}</div>
+      ${progressHtml}
+      <button class="kro-btn" data-accept="${q.id}">Acceptér quest</button>`;
+    wrap.appendChild(el);
+  });
+  wrap.querySelectorAll('[data-accept]').forEach(btn=>{
+    btn.onclick=()=>{
+      const id=btn.getAttribute('data-accept');
+      const idx=state.tavleQuests.findIndex(q=>q.id===id);
+      if(idx>=0){
+        state.active.push(state.tavleQuests[idx]);
+        state.tavleQuests.splice(idx,1);
+        renderQuests(); renderActiveQuests(); scheduleSave('acceptQuest');
+      }
+    };
+  });
+  wrap.querySelectorAll('[data-progress]').forEach(btn=>{
+    btn.onclick=()=>{
+      const id=btn.getAttribute('data-progress');
+      const quest=state.tavleQuests.find(q=>q.id===id);
+      if(quest){ updateQuestProgress(quest,1); renderQuests(); scheduleSave('progressQuest'); }
+    };
+  });
+}
+function renderActiveQuests(){
+  const div=document.getElementById('activequests'); if(!div) return;
+  div.innerHTML=`<h2 class="kro-questheader">🎒 Aktive quests</h2><div class="kro-quests"></div>`;
+  const wrap=div.querySelector('.kro-quests'); if(!wrap) return;
+  wrap.innerHTML='';
+  state.active.forEach(q=>{
+    const progressHtml=q.type==='progress'?`<div class="kro-quest-progress">Fremgang: ${q.progress} / ${q.vars[q.goal]} <button class="kro-btn" data-progress-active="${q.id}">+1</button></div>`:'';
+    const el=document.createElement('div');
+    el.className='kro-questroll';
+    el.innerHTML=`
+      <span class="kro-questicon">${q.icon||''}</span>
+      <div class="quest-topline"><b>${q.name}</b>${rarityBadge(q.rarity)}</div>
+      <div class="kro-questdesc">${q.desc}</div>
+      <div class="kro-questpts">XP: <b>${q.xp}</b> | Type: ${q.type==='progress'?'⏳ progress':'⚡ instant'}</div>
+      ${progressHtml}
+      <div class="kro-quest-actions">
+        <button class="kro-btn" data-complete="${q.id}">Gennemfør</button>
+        <button class="kro-btn kro-drop" data-drop="${q.id}">Drop</button>
+      </div>`;
+    wrap.appendChild(el);
+  });
+  wrap.querySelectorAll('[data-complete]').forEach(btn=>{
+    btn.onclick=()=>{
+      const id=btn.getAttribute('data-complete');
+      const idx=state.active.findIndex(q=>q.id===id);
+      if(idx>=0){
+        const quest=state.active[idx];
+        const goalOk = quest.type!=='progress' || quest.completed || (quest.goal && quest.vars && quest.progress>=quest.vars[quest.goal]);
+        if(!goalOk) return;
+        state.completed.push({id:quest.id,name:quest.name,archetype:quest.archetype,xp:quest.xp,type:quest.type,levelRequirement:quest.level,completedAt:Date.now(),rarity:quest.rarity||''});
+        state.xp+=quest.xp;
+        const aId=canonicalArchetypeId(quest.archetype);
+        if(aId && state.archetypeXP[aId]!=null){
+            const before=calcLevel(state.archetypeXP[aId]);
+            state.archetypeXP[aId]+=quest.xp;
+            const after=calcLevel(state.archetypeXP[aId]);
+            if(after>before) handleLevelUpLore(aId,before,after); else maybeUnlockMinorLore(aId);
+            state.archetypeLevel[aId]=after;
+        }
+        state.active.splice(idx,1);
+        renderProgressBar(); renderStory(); renderProfile(); renderQuests(); renderActiveQuests(); renderCharacterHeader(); checkAchievements('questComplete'); scheduleSave('questComplete');
+      }
+    };
+  });
+  wrap.querySelectorAll('[data-drop]').forEach(btn=>{
+    btn.onclick=()=>{
+      const id=btn.getAttribute('data-drop');
+      const idx=state.active.findIndex(q=>q.id===id);
+      if(idx>=0){
+        state.active.splice(idx,1);
+        renderActiveQuests(); renderQuests(); scheduleSave('dropQuest');
+      }
+    };
+  });
+  wrap.querySelectorAll('[data-progress-active]').forEach(btn=>{
+    btn.onclick=()=>{
+      const id=btn.getAttribute('data-progress-active');
+      const quest=state.active.find(q=>q.id===id);
+      if(quest){
+        updateQuestProgress(quest,1);
+        if(quest.goal && quest.vars && quest.progress>=quest.vars[quest.goal]) quest.completed=true;
+        renderActiveQuests(); scheduleSave('progressActiveQuest');
+      }
+    };
+  });
+}
+
+/* ---------- KRØNIKE ---------- */
+const BOOK_PAGE_PAIR=[['stats','achievements'],['completed','lore']];
+function renderBookPages(){
+  const spread=document.getElementById('book-spread'); if(!spread) return;
+  const total=BOOK_PAGE_PAIR.length;
+  if(state.bookPageIndex>=total) state.bookPageIndex=total-1;
+  const pair=BOOK_PAGE_PAIR[state.bookPageIndex];
+  const cur=document.getElementById('book-page-current');
+  const tot=document.getElementById('book-page-total');
+  if(cur) cur.textContent=String(state.bookPageIndex+1);
+  if(tot) tot.textContent=String(total);
+  spread.innerHTML=pair.map(renderBookPage).join('');
+  const prev=document.getElementById('book-prev'), next=document.getElementById('book-next');
+  if(prev) prev.disabled = state.bookPageIndex===0;
+  if(next) next.disabled = state.bookPageIndex===total-1;
+}
+function renderBookPage(id){
+  switch(id){
+    case 'stats': return renderStatsPage();
+    case 'achievements': return renderAchievementsPage();
+    case 'completed': return renderCompletedPage();
+    case 'lore': return renderLorePage();
+    default: return `<div class="book-page"><h3>Ukendt</h3></div>`;
+  }
+}
+function renderStatsPage(){
+  const total=state.completed.length;
+  const rows=archetypes.map(a=>({name:a.name,count:state.completed.filter(q=>q.archetype===a.id).length,level:calcLevel(state.archetypeXP[a.id])}));
+  return `<div class="book-page book-page--stats">
+    <h3>Stats</h3>
+    <div class="stats-summary"><div><b>Total Stjernelys:</b> ${state.xp}</div><div><b>Gennemførte quests:</b> ${total}</div></div>
+    <div class="stats-grid">${rows.map(r=>`<div class="stat-card"><div class="stat-title">${r.name}</div><div class="stat-line"><span>Quests:</span> <b>${r.count}</b></div><div class="stat-line"><span>Level:</span> <b>${r.level}</b></div></div>`).join('')}</div>
+  </div>`;
+}
+function renderAchievementsPage(){
+  const unlocked=[],locked=[];
+  achievementDefs.forEach(d=> state.achievementsUnlocked.has(d.id)?unlocked.push(d):locked.push(d));
+  const block=(label,arr,ok)=>arr.length?`<div class="ach-block"><h4>${label}</h4><div class="ach-grid">${
+    arr.map(a=>`<div class="ach-item ${ok?'unlocked':''}"><div class="ach-item-title">${a.title}</div><div class="ach-item-desc">${a.desc}</div><div class="ach-item-status">${ok?'✓':'Låst'}</div></div>`).join('')
+  }</div></div>`:'';
+  return `<div class="book-page book-page--achievements"><h3>Achievements</h3>${block('Åbnet',unlocked,true)}${block('Låste',locked,false)}</div>`;
+}
+function renderCompletedPage(){
+  if(!state.completed.length) return `<div class="book-page book-page--completed"><h3>Gennemførte Quests</h3><em>Ingen endnu.</em></div>`;
+  const list=[...state.completed].sort((a,b)=>b.completedAt-a.completedAt);
+  return `<div class="book-page book-page--completed"><h3>Gennemførte Quests</h3>
+    <div class="qtable-wrap"><table class="qtable">
+      <thead><tr><th>Navn</th><th>Arketype</th><th>XP</th><th>Rarity</th><th>Type</th><th>Tid</th></tr></thead>
+      <tbody>${list.map(q=>`<tr><td>${q.name}</td><td>${archetypeMap[q.archetype]?.name||q.archetype||''}</td><td class="num">${q.xp}</td><td>${q.rarity||''}</td><td>${q.type||''}</td><td>${new Date(q.completedAt).toLocaleString()}</td></tr>`).join('')}</tbody>
+    </table></div>
+  </div>`;
+}
+function renderLorePage(){
+  if(!state.chronicleLore.length) return `<div class="book-page book-page--lore"><h3>Lore</h3><em>Ingen lore endnu.</em></div>`;
+  const list=[...state.chronicleLore].sort((a,b)=>b.ts-a.ts);
+  return `<div class="book-page book-page--lore"><h3>Lore (Major)</h3><div class="lore-list">${
+    list.map(e=>`<div class="lore-item"><div class="lore-head"><span class="lore-title">${e.archetypeName} – Level ${e.level}</span><span class="lore-time">${new Date(e.ts).toLocaleTimeString()}</span></div><div class="lore-major">${e.majorLore}</div></div>`).join('')
+  }</div></div>`;
+}
+
+/* ---------- BOOK NAV EVENTS ---------- */
+document.addEventListener('click', e=>{
+  if(e.target.id==='book-prev' && state.bookPageIndex>0){ state.bookPageIndex--; renderBookPages(); scheduleSave('bookPrev'); }
+  if(e.target.id==='book-next' && state.bookPageIndex<BOOK_PAGE_PAIR.length-1){ state.bookPageIndex++; renderBookPages(); scheduleSave('bookNext'); }
+});
+
+/* ---------- PERSISTENCE ---------- */
+let _saveTimer=null;
+function scheduleSave(reason){ if(_saveTimer) clearTimeout(_saveTimer); _saveTimer=setTimeout(()=>saveState(reason),SAVE_DEBOUNCE_MS); }
+function serializeState(){ return {...state, meta:{...state.meta,avatar:null}, achievementsUnlocked:[...state.achievementsUnlocked]}; }
+function saveState(){ try{ overwriteActiveProfileState(serializeState()); }catch(e){ console.warn('Save fejl',e);} }
+
+// Robust attachStateFromProfile
+function attachStateFromProfile(){
+  const ps=getActiveProfileState(); const prof=getActiveProfile();
+  if(!ps) return false;
+  let raw = ps.achievementsUnlocked;
+  if(raw instanceof Set){ raw = [...raw]; }
+  else if(Array.isArray(raw)){}
+  else if(raw && typeof raw === 'object' && !raw[Symbol.iterator]){ raw = Object.values(raw); }
+  else if(!raw){ raw = []; }
+  else { try { raw = [...raw]; } catch { raw = []; } }
+  try { ps.achievementsUnlocked = new Set(raw); } catch(e){ console.warn('[ATTACH] Set konverteringsfejl',e); ps.achievementsUnlocked=new Set(); }
+  if(!ps.meta) ps.meta={name:'Karakter',avatar:null};
+  ps.meta.avatar=prof?.avatar||ps.meta.avatar||null;
+  if(!ps.archetypeXP){
+    ps.archetypeXP=Object.fromEntries(archetypes.map(a=>[a.id,0]));
+  } else {
+    archetypes.forEach(a=>{ if(ps.archetypeXP[a.id]==null) ps.archetypeXP[a.id]=0; });
+  }
+  if(!ps.archetypeLevel){
+    ps.archetypeLevel=Object.fromEntries(archetypes.map(a=>[a.id,1]));
+  } else {
+    archetypes.forEach(a=>{ if(ps.archetypeLevel[a.id]==null) ps.archetypeLevel[a.id]=1; });
+  }
+  if(!ps.minorLoreProgress) ps.minorLoreProgress={};
+  state=ps;
+  return true;
+}
+
+/* ---------- BILLEDEKOMPRESSOR ---------- */
+async function fileToCompressedDataURL(file,maxSize=96){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(); const fr=new FileReader();
+    fr.onload=e=>{ img.onload=()=>{ const c=document.createElement('canvas'); const sc=Math.min(maxSize/img.width,maxSize/img.height,1); const w=Math.round(img.width*sc),h=Math.round(img.height*sc);
+      c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+      let d; try{ d=c.toDataURL('image/jpeg',0.8);}catch(_){ d=c.toDataURL('image/png'); }
+      resolve(d);
+    }; img.onerror=()=>reject(new Error('Billedfejl')); img.src=e.target.result; };
+    fr.onerror=()=>reject(fr.error||new Error('FileReader fejl'));
+    fr.readAsDataURL(file);
+  });
+}
+
+/* ---------- PROFILVÆLGER ---------- */
+let currentAvatarSelection=null;
+function showProfileSelector(){
+  const r=root(); if(!r){console.error('Ingen #app'); return;}
+  r.innerHTML=`
+  <div class="profile-select-screen">
+    <h1>Eryndors Lys</h1>
+    <p class="ps-intro">Vælg en eksisterende karakter eller opret en ny.</p>
+    <div id="ps-error" style="display:none;background:#5c1a1a;padding:.7rem .9rem;border:1px solid #c33;color:#ffdada;border-radius:8px;margin-bottom:1rem;font-size:.8rem;"></div>
+    <div class="ps-list" id="ps-list"></div>
+    <div class="ps-create">
+      <h3>Opret ny</h3>
+      <label class="ps-label">Navn
+        <input id="new-prof-name" placeholder="Navn..." />
+      </label>
+      <div class="avatar-section">
+        <div class="avatar-preset-grid" id="avatar-preset-grid"></div>
+        <div class="avatar-upload-block">
+          <label class="ps-label">Upload avatar
+            <input type="file" id="avatar-upload" accept="image/*" />
+          </label>
+          <label class="ps-label">Eller URL
+            <input id="avatar-url" placeholder="https://..." />
+          </label>
+        </div>
+      </div>
+      <div class="chosen-avatar-preview" id="chosen-avatar-preview"></div>
+      <button id="create-prof" class="btn primary wide">Opret Karakter</button>
+    </div>
+  </div>`;
+  renderProfileList();
+  initAvatarChooser();
+  const btn=document.getElementById('create-prof');
+  const nameInput=document.getElementById('new-prof-name');
+  function showErr(msg){
+    const box=document.getElementById('ps-error'); if(!box) return;
+    box.textContent=msg; box.style.display='block';
+  }
+  async function handleCreate(){
+    if(btn.disabled) return;
+    btn.disabled=true; btn.textContent='Opretter...';
+    try{
+      const name=(nameInput.value.trim())||'Karakter';
+      const avatar=currentAvatarSelection||null;
+      createProfile(name,avatar,makeFreshState);
+      if(!attachStateFromProfile()) throw new Error('Kunne ikke hente ny profil fra storage');
+      archetypes.forEach(a=>{ state.archetypeLevel[a.id]=calcLevel(state.archetypeXP[a.id]); });
+      backfillMajorLore();
+      state.meta.name=name; state.meta.avatar=avatar;
+      try{
+        initAppAfterProfile();
+        window.scrollTo(0,0);
+      }catch(e){
+        console.error('initAppAfterProfile fejl',e);
+        showErr('Fejl under initialisering af spillet. Se console.');
+        btn.disabled=false; btn.textContent='Opret Karakter';
+      }
+    }catch(e){
+      console.error('Oprettelse fejl',e);
+      showErr('Kunne ikke oprette karakter: '+e.message);
+      btn.disabled=false; btn.textContent='Opret Karakter';
+    }
+  }
+  btn.onclick=handleCreate;
+  nameInput.addEventListener('keydown',e=>{ if(e.key==='Enter') handleCreate(); });
+}
+function renderProfileList(){
+  const listEl=document.getElementById('ps-list'); if(!listEl) return;
+  const profiles=listProfiles();
+  if(!profiles.length){ listEl.innerHTML='<em>Ingen karakterer endnu.</em>'; return; }
+  listEl.innerHTML=profiles.map(p=>`
+    <div class="ps-item" data-pid="${p.id}">
+      <div class="ps-left">
+        <div class="ps-avatar">${p.avatar?`<img src='${p.avatar}' alt=''>`:'<span class="ps-avatar-placeholder">?</span>'}</div>
+        <div class="ps-info"><div class="ps-name">${p.name}</div><div class="ps-meta">XP: ${p.xp}</div></div>
+      </div>
+      <div class="ps-item-actions">
+        <button class="btn mini" data-load="${p.id}">Spil</button>
+        <button class="btn mini danger" data-del="${p.id}">Slet</button>
+      </div>
+    </div>`).join('');
+  listEl.querySelectorAll('[data-load]').forEach(btn=>{
+    btn.onclick=()=>{
+      if(setActiveProfile(btn.getAttribute('data-load'))){
+        attachStateFromProfile();
+        archetypes.forEach(a=>{ state.archetypeLevel[a.id]=calcLevel(state.archetypeXP[a.id]); });
+        backfillMajorLore();
+        initAppAfterProfile();
+      }
+    };
+  });
+  listEl.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.onclick=()=>{
+      const pid=btn.getAttribute('data-del');
+      if(confirm('Slet denne karakter permanent?')){ deleteProfile(pid); renderProfileList(); }
+    };
+  });
+}
+
+/* ---------- AVATAR VALG ---------- */
+function initAvatarChooser(){
+  const grid=document.getElementById('avatar-preset-grid');
+  const preview=document.getElementById('chosen-avatar-preview');
+  if(grid){
+    grid.innerHTML=PRESET_AVATARS.map(a=>`<button class="avatar-choice" data-avatar="${a.src}" title="${a.label}"><img src='${a.src}' alt='${a.label}'></button>`).join('');
+    grid.querySelectorAll('.avatar-choice').forEach(btn=>{
+      btn.onclick=()=>{ currentAvatarSelection=btn.getAttribute('data-avatar'); updateChosenPreview(preview); };
+    });
+  }
+  const up=document.getElementById('avatar-upload');
+  if(up){
+    up.onchange=async ()=>{
+      const f=up.files?.[0];
+      if(f){
+        try{ currentAvatarSelection=await fileToCompressedDataURL(f,96); }
+        catch(e){
+          console.warn('Komprimeringsfejl',e);
+          const fr=new FileReader(); fr.onload=ev=> currentAvatarSelection=ev.target.result; fr.readAsDataURL(f);
+        }
+        updateChosenPreview(preview);
+      }
+    };
+  }
+  const urlInput=document.getElementById('avatar-url');
+  if(urlInput){
+    urlInput.onchange=()=>{
+      const val=urlInput.value.trim();
+      if(val){ currentAvatarSelection=val; updateChosenPreview(preview); }
+    };
+  }
+  updateChosenPreview(preview);
+}
+function updateChosenPreview(preview){
+  if(!preview) return;
+  preview.innerHTML = currentAvatarSelection
+    ? `<div class="chosen-label">Valgt Avatar:</div><img src='${currentAvatarSelection}' alt='Valgt' class='chosen-avatar-img'>`
+    : `<em>Ingen avatar valgt</em>`;
+}
+
+/* ---------- KARAKTER REDIGERING ---------- */
+function openCharacterEdit(){
+  const wrap=document.createElement('div');
+  wrap.className='char-edit-overlay';
+  wrap.innerHTML=`
+    <div class="char-edit-modal">
+      <button class="char-edit-close" aria-label="Luk">✖</button>
+      <h3>Redigér Karakter</h3>
+      <label>Navn <input id="edit-char-name" value="${state.meta.name||''}" /></label>
+      <div class="char-edit-avatar-block">
+        <div class="char-current-avatar">${state.meta.avatar?`<img src='${state.meta.avatar}' alt=''>`:'<span class="ps-avatar-placeholder large">?</span>'}</div>
+        <div class="char-avatar-actions">
+          <div class="mini-avatar-grid">
+            ${PRESET_AVATARS.map(a=>`<button class="mini-avatar-btn" data-mini-avatar="${a.src}" title="${a.label}"><img src='${a.src}' alt='${a.label}'></button>`).join('')}
+          </div>
+          <label class="upload-inline">Upload <input type="file" id="edit-avatar-upload" accept="image/*" hidden></label>
+          <input id="edit-avatar-url" placeholder="Avatar URL..." />
+        </div>
+      </div>
+      <div class="char-edit-actions">
+        <button class="btn primary" id="char-edit-save">Gem</button>
+        <button class="btn danger" id="char-edit-reset">Nulstil karakter (XP=0)</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+
+  let tempAvatar=state.meta.avatar||null;
+  function updateTempAvatar(){ const cur=wrap.querySelector('.char-current-avatar'); if(cur) cur.innerHTML=tempAvatar?`<img src='${tempAvatar}' alt=''>`:'<span class="ps-avatar-placeholder large">?</span>'; }
+  wrap.querySelectorAll('[data-mini-avatar]').forEach(btn=>btn.onclick=()=>{ tempAvatar=btn.getAttribute('data-mini-avatar'); updateTempAvatar(); });
+  const fileInput=wrap.querySelector('#edit-avatar-upload'); const uploadLabel=wrap.querySelector('.upload-inline'); if(uploadLabel) uploadLabel.onclick=()=>fileInput?.click();
+  if(fileInput){
+    fileInput.onchange=async ()=>{
+      const f=fileInput.files?.[0];
+      if(f){
+        try{ tempAvatar=await fileToCompressedDataURL(f,96); }
+        catch(e){
+          console.warn('Komprimering fejlede',e);
+          const fr=new FileReader(); fr.onload=ev=>{ tempAvatar=ev.target.result; updateTempAvatar(); }; fr.readAsDataURL(f); return;
+        }
+        updateTempAvatar();
+      }
+    };
+  }
+  const urlInput=wrap.querySelector('#edit-avatar-url'); if(urlInput) urlInput.onchange=()=>{ const v=urlInput.value.trim(); if(v){ tempAvatar=v; updateTempAvatar(); } };
+  wrap.querySelector('.char-edit-close').onclick=()=>wrap.remove();
+  wrap.addEventListener('mousedown',e=>{ if(e.target===wrap) wrap.remove(); });
+  wrap.querySelector('#char-edit-save').onclick=()=>{
+    const newName=(wrap.querySelector('#edit-char-name').value.trim())||'Karakter';
+    state.meta.name=newName; state.meta.avatar=tempAvatar;
+    updateActiveProfileMeta({name:newName,avatar:tempAvatar});
+    renderCharacterHeader(); renderProfile(); scheduleSave('charEdit'); wrap.remove();
+  };
+  wrap.querySelector('#char-edit-reset').onclick=()=>{
+    if(confirm('Nulstil denne karakter til 0 XP og tom historik?')){
+      resetActiveProfile(makeFreshState);
+      attachStateFromProfile();
+      state.meta.avatar=tempAvatar;
+      updateActiveProfileMeta({avatar:tempAvatar});
+      renderAll(); scheduleSave('charSoftReset'); wrap.remove();
+    }
+  };
+}
+
+/* ---------- FULL RENDER ---------- */
+function renderAll(){
+  renderCharacterHeader(); renderProgressBar(); renderStory(); renderProfile(); renderQuests(); renderActiveQuests(); switchView(state.currentView); checkAchievements('renderAll');
+}
+
+/* ---------- INIT EFTER PROFIL ---------- */
+function initAppAfterProfile(){
+  buildStaticMarkup();
+  backfillMajorLore();
+  if(!state.tavleQuests.length){
+    state.tavleQuests = generateQuestList(MAX_QUESTS_ON_TAVLE,{playerLevel:getPlayerLevel(),archetypeLevels:state.archetypeLevel});
+  }
+  hookGlobalUI();
+  renderAll();
+  scheduleSave('initAfterProfile');
+}
+
+/* ---------- UI HOOKS ---------- */
+function hookGlobalUI(){
+  const chronBtn=document.getElementById('chronicle-launcher'); if(chronBtn) chronBtn.onclick=()=>switchView('chronicle');
+  const backBtn=document.getElementById('back-to-main'); if(backBtn) backBtn.onclick=()=>switchView('main');
+  const saveNow=document.getElementById('save-now'); if(saveNow) saveNow.onclick=()=>{ saveState('manual'); quickSaveToast(); };
+  const switchBtn=document.getElementById('switch-profile'); if(switchBtn) switchBtn.onclick=()=>{ saveState(); showProfileSelector(); };
+  const resetBtn=document.createElement('button'); resetBtn.textContent='Nulstil karakter'; resetBtn.className='btn danger mini char-reset-btn';
+  resetBtn.onclick=()=>{ if(confirm('Nulstil denne karakter helt?')){ resetActiveProfile(makeFreshState); attachStateFromProfile(); renderAll(); scheduleSave('resetProfile'); } };
+  document.body.appendChild(resetBtn);
+}
+
+/* ---------- QUICK SAVE TOAST ---------- */
+function quickSaveToast(){
+  const t=document.createElement('div'); t.textContent='Gemt';
+  Object.assign(t.style,{
+    position:'fixed',bottom:'1rem',right:'1rem',
+    background:'#25313b',color:'#cfe9f7',
+    padding:'8px 14px',border:'1px solid #3c5564',
+    borderRadius:'8px',font:'12px/1 system-ui,Arial,sans-serif',
+    boxShadow:'0 4px 12px rgba(0,0,0,.45)',
+    zIndex:9999,opacity:'0',transform:'translateY(6px)',
+    transition:'opacity .35s, transform .35s'
+  });
+  document.body.appendChild(t);
+  requestAnimationFrame(()=>{ t.style.opacity='1'; t.style.transform='translateY(0)'; });
+  setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateY(6px)'; setTimeout(()=>t.remove(),420); },1300);
+}
+
+/* ---------- INIT ---------- */
+function init(){
+  ensureProfileStore();
+  const haveProfile = !!getActiveProfile();
+  if(ALWAYS_SHOW_PROFILE_SELECTOR || !haveProfile) {
+    showProfileSelector();
+  } else {
+    if(attachStateFromProfile()){
+      archetypes.forEach(a=>{ state.archetypeLevel[a.id]=calcLevel(state.archetypeXP[a.id]); });
+      backfillMajorLore();
+      initAppAfterProfile();
+    } else {
+      showProfileSelector();
+    }
+  }
+}
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init); else init();
+window.addEventListener('beforeunload', ()=>{ try{ saveState('beforeUnload'); }catch(_){ } });
+
+/* ---------- DEBUG HELPERS ---------- */
+window.debugArchetypeXP=function(id,amount=100){
+  id=canonicalArchetypeId(id); if(!(id in state.archetypeXP)) return;
+  const before=calcLevel(state.archetypeXP[id]); state.archetypeXP[id]+=amount;
+  const after=calcLevel(state.archetypeXP[id]); if(after>before) handleLevelUpLore(id,before,after); else maybeUnlockMinorLore(id);
+  state.archetypeLevel[id]=after; renderProfile(); scheduleSave('debugArchetypeXP');
+};
+window.debugAddXP=function(amount=50){ state.xp+=amount; renderProgressBar(); scheduleSave('debugAddXP'); };
