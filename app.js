@@ -1,10 +1,7 @@
-/* Eryndors Lys – FULD app.js (minimal rettelse)
-   Ændringer vs din repo-version:
-   - ALWAYS_SHOW_PROFILE_SELECTOR flag (kan slå til/fra).
-   - showProfileSelector(): robust handleCreateProfile med disable + try/catch.
-   - Efter oprettelse: initAppAfterProfile kald i try/catch med fallback fejlvisning.
-   - renderProfile(): uændret bortset fra at bruge én række (styres i CSS).
-   - Ingen funktioner fjernet.
+/* Eryndors Lys – app.js (fuld fil med robust attachStateFromProfile patch)
+   Ændringer i forhold til nuværende repo-version:
+   - Robust attachStateFromProfile (løser "object is not iterable" ved nyoprettet profil).
+   Alt andet uændret.
 */
 import { storyChapters } from './story.js';
 import { generateQuestList, updateQuestProgress } from './Questgenerator.js';
@@ -119,7 +116,18 @@ function showAchievementToast(def){
   const box=document.createElement('div');
   box.className='ach-toast';
   box.innerHTML=`<strong>${def.title}</strong><br><span>${def.desc}</span>`;
-  Object.assign(box.style,{position:'fixed',bottom:'1rem',left:'1rem',background:'linear-gradient(135deg,#234e28,#1a3520)',color:'#e2f8e5',padding:'12px 16px',border:'1px solid #3d6a42',borderRadius:'10px',font:'13px/1.4 system-ui,Arial,sans-serif',zIndex:9999,maxWidth:'260px',boxShadow:'0 6px 18px rgba(0,0,0,.45)',opacity:'0',transform:'translateY(8px)',transition:'opacity .4s, transform .4s'});
+  Object.assign(box.style,{
+    position:'fixed',bottom:'1rem',left:'1rem',
+    background:'linear-gradient(135deg,#234e28,#1a3520)',
+    color:'#e2f8e5',padding:'12px 16px',
+    border:'1px solid #3d6a42',
+    borderRadius:'10px',
+    font:'13px/1.4 system-ui,Arial,sans-serif',
+    zIndex:9999,maxWidth:'260px',
+    boxShadow:'0 6px 18px rgba(0,0,0,.45)',
+    opacity:'0',transform:'translateY(8px)',
+    transition:'opacity .4s, transform .4s'
+  });
   document.body.appendChild(box);
   requestAnimationFrame(()=>{ box.style.opacity='1'; box.style.transform='translateY(0)'; });
   setTimeout(()=>{ box.style.opacity='0'; box.style.transform='translateY(8px)'; setTimeout(()=>box.remove(),450); },4600);
@@ -548,15 +556,52 @@ let _saveTimer=null;
 function scheduleSave(reason){ if(_saveTimer) clearTimeout(_saveTimer); _saveTimer=setTimeout(()=>saveState(reason),SAVE_DEBOUNCE_MS); }
 function serializeState(){ return {...state, meta:{...state.meta,avatar:null}, achievementsUnlocked:[...state.achievementsUnlocked]}; }
 function saveState(){ try{ overwriteActiveProfileState(serializeState()); }catch(e){ console.warn('Save fejl',e);} }
+
+// PATCH START: robust attachStateFromProfile
 function attachStateFromProfile(){
   const ps=getActiveProfileState(); const prof=getActiveProfile();
   if(!ps) return false;
-  ps.achievementsUnlocked = new Set(ps.achievementsUnlocked||[]);
+
+  // Normalisér achievementsUnlocked til et array før Set
+  let raw = ps.achievementsUnlocked;
+  if(raw instanceof Set){
+    raw = [...raw];
+  } else if(Array.isArray(raw)){
+    // ok
+  } else if(raw && typeof raw === 'object' && !raw[Symbol.iterator]){
+    raw = Object.values(raw); // {} -> []
+  } else if(!raw){
+    raw = [];
+  } else {
+    try { raw = [...raw]; } catch { raw = []; }
+  }
+  try {
+    ps.achievementsUnlocked = new Set(raw);
+  } catch(e){
+    console.warn('[ATTACH] Set konverteringsfejl, bruger tom Set', e);
+    ps.achievementsUnlocked = new Set();
+  }
+
   if(!ps.meta) ps.meta={name:'Karakter',avatar:null};
-  ps.meta.avatar=prof?.avatar||null;
+  ps.meta.avatar=prof?.avatar||ps.meta.avatar||null;
+
+  if(!ps.archetypeXP){
+    ps.archetypeXP = Object.fromEntries(archetypes.map(a=>[a.id,0]));
+  } else {
+    archetypes.forEach(a=>{ if(ps.archetypeXP[a.id]==null) ps.archetypeXP[a.id]=0; });
+  }
+  if(!ps.archetypeLevel){
+    ps.archetypeLevel = Object.fromEntries(archetypes.map(a=>[a.id,1]));
+  } else {
+    archetypes.forEach(a=>{ if(ps.archetypeLevel[a.id]==null) ps.archetypeLevel[a.id]=1; });
+  }
+
+  if(!ps.minorLoreProgress) ps.minorLoreProgress = {};
+
   state=ps;
   return true;
 }
+// PATCH END
 
 /* ---------- BILLEDEKOMPRESSOR ---------- */
 async function fileToCompressedDataURL(file,maxSize=96){
@@ -618,7 +663,6 @@ function showProfileSelector(){
       const avatar=currentAvatarSelection||null;
       createProfile(name,avatar,makeFreshState);
       if(!attachStateFromProfile()) throw new Error('Kunne ikke hente ny profil fra storage');
-      // recompute + lore
       archetypes.forEach(a=>{ state.archetypeLevel[a.id]=calcLevel(state.archetypeXP[a.id]); });
       backfillMajorLore();
       state.meta.name=name; state.meta.avatar=avatar;
@@ -806,7 +850,15 @@ function hookGlobalUI(){
 /* ---------- QUICK SAVE TOAST ---------- */
 function quickSaveToast(){
   const t=document.createElement('div'); t.textContent='Gemt';
-  Object.assign(t.style,{position:'fixed',bottom:'1rem',right:'1rem',background:'#25313b',color:'#cfe9f7',padding:'8px 14px',border:'1px solid #3c5564',borderRadius:'8px',font:'12px/1 system-ui,Arial,sans-serif',boxShadow:'0 4px 12px rgba(0,0,0,.45)',zIndex:9999,opacity:'0',transform:'translateY(6px)',transition:'opacity .35s, transform .35s'});
+  Object.assign(t.style,{
+    position:'fixed',bottom:'1rem',right:'1rem',
+    background:'#25313b',color:'#cfe9f7',
+    padding:'8px 14px',border:'1px solid #3c5564',
+    borderRadius:'8px',font:'12px/1 system-ui,Arial,sans-serif',
+    boxShadow:'0 4px 12px rgba(0,0,0,.45)',
+    zIndex:9999,opacity:'0',transform:'translateY(6px)',
+    transition:'opacity .35s, transform .35s'
+  });
   document.body.appendChild(t);
   requestAnimationFrame(()=>{ t.style.opacity='1'; t.style.transform='translateY(0)'; });
   setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateY(6px)'; setTimeout(()=>t.remove(),420); },1300);
